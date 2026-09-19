@@ -1,14 +1,13 @@
 #import <Preferences/PSListController.h>
 #import <Preferences/PSSpecifier.h>
-#import <Preferences/PSTableCell.h>
-#import <Preferences/PSLinkCell.h>
 #import <spawn.h>
 #import <UIKit/UIKit.h>
 
 #define kDomain    @"com.yourname.gptfloatball"
 #define kPlistPath @"/var/mobile/Library/Preferences/com.yourname.gptfloatball.plist"
+#define kIconPath  @"/var/mobile/Library/Preferences/GPTFloatBall_icon.png"
 
-// ================= plist 读写 =================
+// ============ plist 读写 ============
 static NSMutableDictionary *readPrefs(void) {
     NSMutableDictionary *d = [NSMutableDictionary dictionaryWithContentsOfFile:kPlistPath];
     return d ?: [NSMutableDictionary new];
@@ -23,35 +22,6 @@ static void writePrefs(NSDictionary *d) {
 static NSString *strOr(NSString *s, NSString *fb) {
     return (s && s.length > 0) ? s : fb;
 }
-
-// ================= 自定义 LinkCell：右侧显示字符串 =================
-@interface GPTLinkCell : PSLinkCell
-@end
-@implementation GPTLinkCell
-- (void)refreshCellContentsWithSpecifier:(PSSpecifier *)specifier {
-    [super refreshCellContentsWithSpecifier:specifier];
-    NSString *right = [specifier propertyForKey:@"rightDetail"];
-    if (right.length == 0) { self.accessoryView = nil; return; }
-
-    UIView *box = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 180, 30)];
-    UILabel *lbl = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, 150, 30)];
-    lbl.text = right;
-    lbl.textColor = [UIColor secondaryLabelColor];
-    lbl.font = [UIFont systemFontOfSize:17];
-    lbl.textAlignment = NSTextAlignmentRight;
-    [box addSubview:lbl];
-
-    UIImageView *iv = [[UIImageView alloc] initWithFrame:CGRectMake(155, 3, 24, 24)];
-    if (@available(iOS 13.0, *)) {
-        iv.image = [UIImage systemImageNamed:@"chevron.right"];
-        iv.tintColor = [UIColor tertiaryLabelColor];
-    }
-    iv.contentMode = UIViewContentModeScaleAspectFit;
-    [box addSubview:iv];
-
-    self.accessoryView = box;
-}
-@end
 
 // ================= 1. API Key =================
 @interface GPTSubAPIKeyController : PSListController
@@ -192,15 +162,17 @@ static NSString *strOr(NSString *s, NSString *fb) {
 }
 @end
 
-// ================= 4. 使用场景 / 温度 =================
+// ================= 4. 温度 =================
 @interface GPTSubTempController : PSListController
 @end
 @implementation GPTSubTempController
 - (NSArray *)specifiers {
-    if (!_specifiers) {
+    if (!;
+_specifiers) {
         NSMutableArray *a = [NSMutableArray array];
-        PSSpecifier *g = [PSSpecifier groupSpecifierWithName:@"选择使用场景"];
-        [g setProperty:@"值越高回答越有创意，越低越严谨（0.0 ~ 2.0）" forKey:@"footerText"];
+}
+        PSSpecifier *-g = [PSSpecifier groupSpec (ifierWithName:@"选择使用场景"];
+        [gid setProperty:@"值越高回答越有创意，越低越严谨（0.0 ~ 2.0）" forKey:@"footerText"];
         [a addObject:g];
 
         NSArray *ps = @[
@@ -232,9 +204,7 @@ static NSString *strOr(NSString *s, NSString *fb) {
 
         _specifiers = a;
     }
-    return _specifiers;
-}
-- (id)getTemp:(PSSpecifier *)s {
+    return _specifiers)getTemp:(PSSpecifier *)s {
     NSString *cur = strOr(readPrefs()[@"temperature"], @"");
     return [cur isEqualToString:[s propertyForKey:@"tempValue"]] ? @YES : @NO;
 }
@@ -246,7 +216,7 @@ static NSString *strOr(NSString *s, NSString *fb) {
 }
 @end
 
-// ================= 5. 输出 tokens =================
+// ================= 5. tokens =================
 @interface GPTSubTokensController : PSListController
 @end
 @implementation GPTSubTokensController
@@ -294,6 +264,96 @@ static NSString *strOr(NSString *s, NSString *fb) {
 }
 @end
 
+// ================= 6. 图标（相册选图） =================
+@interface GPTSubIconController : PSListController <UIImagePickerControllerDelegate, UINavigationControllerDelegate>
+@end
+@implementation GPTSubIconController
+- (NSArray *)specifiers {
+    if (!_specifiers) {
+        NSMutableArray *a = [NSMutableArray array];
+
+        NSString *iconPath = readPrefs()[@"iconPath"];
+        PSSpecifier *g = [PSSpecifier groupSpecifierWithName:@"当前图标"];
+        [g setProperty:(iconPath.length > 0 ? [NSString stringWithFormat:@"已自定义：%@", iconPath]
+                                            : @"默认（蓝色圆形 + 'AI' 文字）")
+            forKey:@"footerText"];
+        [a addObject:g];
+
+        PSSpecifier *pick = [PSSpecifier preferenceSpecifierNamed:@"📷 从相册选择"
+                                                            target:self
+                                                               set:@selector(pickFromAlbum)
+                                                               get:nil
+                                                            detail:nil cell:PSButtonCell edit:nil];
+        [a addObject:pick];
+
+        PSSpecifier *reset = [PSSpecifier preferenceSpecifierNamed:@"恢复默认图标"
+                                                            target:self
+                                                               set:@selector(resetIcon)
+                                                               get:nil
+                                                            detail:nil cell:PSButtonCell edit:nil];
+        [a addObject:reset];
+
+        PSSpecifier *note = [PSSpecifier groupSpecifierWithName:@"提示"];
+        [note setProperty:@"选图后会缩放到 128×128 并保存到 /var/mobile/Library/Preferences/GPTFloatBall_icon.png。悬浮球会自动刷新。" forKey:@"footerText"];
+        [a addObject:note];
+
+        _specifiers = a;
+    }
+    return _specifiers;
+}
+
+- (void)pickFromAlbum {
+    UIImagePickerController *p = [[UIImagePickerController alloc] init];
+    p.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
+    p.delegate = self;
+    p.allowsEditing = YES;
+    [self presentViewController:p animated:YES completion:nil];
+}
+
+- (void)imagePickerController:(UIImagePickerController *)picker
+        didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *)info {
+    UIImage *img = info[UIImagePickerControllerEditedImage] ?: info[UIImagePickerControllerOriginalImage];
+    [picker dismissViewControllerAnimated:YES completion:^{
+        if (!img) return;
+
+        // 缩放到 128x128
+        UIGraphicsBeginImageContextWithOptions(CGSizeMake(128, 128), NO, 1.0);
+        [img drawInRect:CGRectMake(0, 0, 128, 128)];
+        UIImage *scaled = UIGraphicsGetImageFromCurrentImageContext();
+        UIGraphicsEndImageContext();
+
+        // 保存
+        NSData *data = UIImagePNGRepresentation(scaled);
+        BOOL ok = [data writeToFile:kIconPath atomically:YES];
+
+        if (ok) {
+            NSMutableDictionary *d = readPrefs();
+            d[@"iconPath"] = kIconPath;
+            writePrefs(d);
+            [self reloadSpecifiers];
+        }
+
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:(ok ? @"✅ 已保存" : @"❌ 保存失败")
+            message:(ok ? @"图标已更新，悬浮球会自动刷新" : @"请检查 /var/mobile/Library/Preferences/ 是否可写")
+            preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionDefault handler:nil]];
+        [self presentViewController:alert animated:YES completion:nil];
+    }];
+}
+
+- (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker {
+    [picker dismissViewControllerAnimated:YES completion:nil];
+}
+
+- (void)resetIcon {
+    NSMutableDictionary *d = readPrefs();
+    [d removeObjectForKey:@"iconPath"];
+    writePrefs(d);
+    [[NSFileManager defaultManager] removeItemAtPath:kIconPath error:nil];
+    [self reloadSpecifiers];
+}
+@end
+
 // ===================== 主控制器 =====================
 @interface GPTFloatBallPrefsRootListController : PSListController
 @end
@@ -319,42 +379,36 @@ static NSString *strOr(NSString *s, NSString *fb) {
     NSMutableArray *a = [NSMutableArray array];
     NSDictionary *p = readPrefs();
 
-    // 顶部
     PSSpecifier *g0 = [PSSpecifier groupSpecifierWithName:@"DeepSeek 探索未至之境"];
     [g0 setProperty:@"本功能对接官方 API，需到官方购买额度才能正常使用" forKey:@"footerText"];
     [a addObject:g0];
 
-    // API key
     NSString *apiKey = p[@"apiKey"];
-    [a addObject:[self link:@"API key"
-                     detail:[GPTSubAPIKeyController class]
+    [a addObject:[self link:@"API key" detail:[GPTSubAPIKeyController class]
                        right:(apiKey.length > 0 ? @"已配置" : @"未配置")]];
 
-    // 角色预设
     NSString *prompt = p[@"systemPrompt"];
-    [a addObject:[self link:@"AI 角色预设"
-                     detail:[GPTSubRoleController class]
+    [a addObject:[self link:@"AI 角色预设" detail:[GPTSubRoleController class]
                        right:(prompt.length > 0 ? @"已配置" : @"默认助手")]];
 
-    // 模型
     NSString *m = p[@"modelName"]; if (m.length == 0) m = @"deepseek-chat";
     [a addObject:[self link:@"AI 模型" detail:[GPTSubModelController class] right:m]];
 
-    // 温度
     NSString *t = p[@"temperature"]; if (t.length == 0) t = @"1.0";
     [a addObject:[self link:@"使用场景" detail:[GPTSubTempController class] right:t]];
 
-    // tokens
     NSString *tk = p[@"maxTokens"]; if (tk.length == 0) tk = @"1024";
     [a addObject:[self link:@"限制输出 tokens" detail:[GPTSubTokensController class] right:tk]];
 
-    // 按钮组
+    NSString *iconPath = p[@"iconPath"];
+    [a addObject:[self link:@"悬浮球图标" detail:[GPTSubIconController class]
+                       right:(iconPath.length > 0 ? @"自定义" : @"默认")]];
+
     [a addObject:[PSSpecifier groupSpecifierWithName:nil]];
     [a addObject:[self button:@"查询额度" action:@selector(doQueryBalance)]];
     [a addObject:[self button:@"调用日志" action:@selector(doShowLogs)]];
     [a addObject:[self button:@"点击测试" action:@selector(doTestCall)]];
 
-    // 总开关
     PSSpecifier *g2 = [PSSpecifier groupSpecifierWithName:@"开关"];
     [a addObject:g2];
     PSSpecifier *en = [PSSpecifier preferenceSpecifierNamed:@"启用悬浮球"
@@ -371,9 +425,8 @@ static NSString *strOr(NSString *s, NSString *fb) {
 
 - (PSSpecifier *)link:(NSString *)label detail:(Class)cls right:(NSString *)right {
     PSSpecifier *s = [PSSpecifier preferenceSpecifierNamed:label
-                                                    target:self set:nil get:nil
-                                                    detail:cls cell:PSLinkCell edit:nil];
-    [s setProperty:[GPTLinkCell class] forKey:@"cellClass"];
+                                                     target:self set:nil get:nil
+                                                     detail:cls cell:PSLinkCell edit:nil];
     [s setProperty:right ?: @"" forKey:@"rightDetail"];
     return s;
 }
@@ -382,6 +435,35 @@ static NSString *strOr(NSString *s, NSString *fb) {
     return [PSSpecifier preferenceSpecifierNamed:label
                                           target:self set:action get:nil
                                           detail:nil cell:PSButtonCell edit:nil];
+}
+
+// 用 willDisplayCell 注入右侧文字（避免 import PSLinkCell.h）
+- (void)tableView:(UITableView *)tableView willDisplayCell:(UITableViewCell *)cell forRowAtIndexPath:(NSIndexPath *)indexPath {
+    NSInteger idx = [self indexForIndexPath:indexPath];
+    if (idx < 0 || idx >= (NSInteger)self.specifiers.count) return;
+    PSSpecifier *spec = self.specifiers[idx];
+    NSString *right = [spec propertyForKey:@"rightDetail"];
+
+    if (right.length > 0) {
+        UIView *box = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 200, 30)];
+        UILabel *lbl = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, 170, 30)];
+        lbl.text = right;
+        lbl.textColor = [UIColor secondaryLabelColor];
+        lbl.font = [UIFont systemFontOfSize:17];
+        lbl.textAlignment = NSTextAlignmentRight;
+        [box addSubview:lbl];
+
+        UIImageView *arrow = [[UIImageView alloc] initWithFrame:CGRectMake(176, 5, 20, 20)];
+        if (@available(iOS 13.0, *)) {
+            arrow.image = [UIImage systemImageNamed:@"chevron.right"];
+            arrow.tintColor = [UIColor tertiaryLabelColor];
+        }
+        [box addSubview:arrow];
+
+        cell.accessoryView = box;
+    } else {
+        cell.accessoryView = nil;
+    }
 }
 
 // ===== 查询额度 =====
@@ -453,7 +535,7 @@ static NSString *strOr(NSString *s, NSString *fb) {
 - (void)alert:(NSString *)msg {
     UIAlertController *a = [UIAlertController alertControllerWithTitle:@"GPT悬浮球"
         message:msg preferredStyle:UIAlertControllerStyleAlert];
-    [a addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+    [a addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionDefault handler:nil]];
     [self presentViewController:a animated:YES completion:nil];
 }
 
