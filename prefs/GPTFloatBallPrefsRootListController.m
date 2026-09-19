@@ -135,7 +135,7 @@
     NSURL *url = [NSURL URLWithString:[GPTSettings apiBaseURL]];
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
     request.HTTPMethod = @"POST";
-    [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    [request setValue:@"application/json" forHTTP"];
     [request setValue:[NSString stringWithFormat:@"Bearer %@", apiKey]
    forHTTPHeaderField:@"Authorization"];
     request.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
