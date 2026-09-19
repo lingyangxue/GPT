@@ -1,6 +1,6 @@
 #import "GPTFloatBallPrefsRootListController.h"
 #import <spawn.h>
-#import <roothide.h>
+#import <stdlib.h>
 
 #define kPrefsPlist @"/var/mobile/Library/Preferences/com.yourname.gptfloatball.plist"
 
@@ -37,7 +37,18 @@
 - (void)respring {
     pid_t pid;
     const char *args[] = {"killall", "-9", "SpringBoard", NULL};
-    posix_spawn(&pid, jbroot(@"/usr/bin/killall"), NULL, NULL, (char * const *)args, NULL);
+    const char *paths[] = {
+        "/var/jb/usr/bin/killall",
+        "/usr/bin/killall",
+        "/bin/killall",
+        NULL
+    };
+    for (int i = 0; paths[i] != NULL; i++) {
+        if (posix_spawn(&pid, paths[i], NULL, NULL, (char * const *)args, NULL) == 0) {
+            return;
+        }
+    }
+    system("killall -9 SpringBoard");
 }
 
 @end
