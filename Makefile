@@ -1,30 +1,14 @@
-export THEOS = $(CURDIR)/theos
-
-ifeq ($(THEOS_PACKAGE_SCHEME),roothide)
-ARCHS = arm64 arm64e
-TARGET = iphone:clang:latest:15.0
-else ifeq ($(THEOS_PACKAGE_SCHEME),rootless)
-ARCHS = arm64 arm64e
-TARGET = iphone:clang:latest:15.0
-else
-ARCHS = arm64 arm64e
-TARGET = iphone:clang:latest:15.0
-endif
-
-INSTALL_TARGET_PROCESSES = SpringBoard
-
 include $(THEOS)/makefiles/common.mk
 
-TWEAK_NAME = GPTFloatBall
-GPTFloatBall_FILES = Tweak.xm GPTChatViewController.m GPTSettings.m
-GPTFloatBall_FRAMEWORKS = UIKit Foundation CoreGraphics
-GPTFloatBall_CFLAGS = -fobjc-arc -Wno-deprecated-declarations
-GPTFloatBall_LIBRARIES = substrate
+BUNDLE_NAME = GPTFloatBallPrefs
 
-include $(THEOS_MAKE_PATH)/tweak.mk
+GPTFloatBallPrefs_FILES = GPTFloatBallPrefsRootListController.m ../GPTSettings.m
+GPTFloatBallPrefs_INSTALL_PATH = /Library/PreferenceBundles
+GPTFloatBallPrefs_FRAMEWORKS = UIKit Foundation
+GPTFloatBallPrefs_CFLAGS = -fobjc-arc
 
-SUBPROJECTS += prefs
-include $(THEOS_MAKE_PATH)/aggregate.mk
+include $(THEOS_MAKE_PATH)/bundle.mk
 
-after-install::
-	install.exec "killall -9 SpringBoard"
+internal-stage::
+	$(ECHO_NOTHING)mkdir -p $(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences$(ECHO_END)
+	$(ECHO_NOTHING)cp entry.plist $(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences/GPTFloatBall.plist$(ECHO_END)
