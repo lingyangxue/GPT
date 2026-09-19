@@ -4,8 +4,8 @@ BUNDLE_NAME = GPTFloatBallPrefs
 GPTFloatBallPrefs_FILES = GPTFloatBallPrefsRootListController.m
 GPTFloatBallPrefs_INSTALL_PATH = /Library/PreferenceBundles
 GPTFloatBallPrefs_FRAMEWORKS = UIKit
-GPTFloatBallPrefs_PRIVATE_FRAMEWORKS = Preferences
 GPTFloatBallPrefs_CFLAGS = -fobjc-arc
+GPTFloatBallPrefs_LDFLAGS = -Wl,-undefined,dynamic_lookup
 
 include $(THEOS_MAKE_PATH)/bundle.mk
 
