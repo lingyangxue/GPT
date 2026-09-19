@@ -31,6 +31,21 @@
     return p.length > 0 ? p : nil;
 }
 
++ (NSString *)systemPrompt {
+    NSString *s = [self _readPrefs][@"systemPrompt"];
+    return s.length > 0 ? s : @"你是一个简洁的AI助手，用中文回答。";
+}
+
++ (double)temperature {
+    NSString *t = [self _readPrefs][@"temperature"];
+    return t.length > 0 ? [t doubleValue] : 0.7;
+}
+
++ (NSInteger)maxTokens {
+    NSString *t = [self _readPrefs][@"maxTokens"];
+    return t.length > 0 ? [t integerValue] : 1024;
+}
+
 + (NSArray *)chatHistory {
     return [self _readPrefs][@"chatHistory"] ?: @[];
 }
