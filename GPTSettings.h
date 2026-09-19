@@ -1,5 +1,4 @@
 #import <Foundation/Foundation.h>
-#import <roothide.h>
 
 #define kPrefsDomain  @"com.yourname.gptfloatball"
 
@@ -13,6 +12,9 @@ static inline NSString *prefsPath(void) {
 + (NSString *)apiBaseURL;
 + (NSString *)modelName;
 + (NSString *)iconPath;
++ (NSString *)systemPrompt;       // 新增
++ (double)temperature;            // 新增
++ (NSInteger)maxTokens;           // 新增
 + (NSArray *)chatHistory;
 + (void)saveChatHistory:(NSArray *)history;
 + (void)clearHistory;
