@@ -6,7 +6,8 @@
 static UIWindow *gFloatWindow = nil;
 static UIButton *gFloatButton = nil;
 
-static UIImage *getBall *customPath = [GPTSettings iconPath];
+static UIImage *getBallIcon(void) {
+    NSString *customPath = [GPTSettings iconPath];
     if (customPath && [[NSFileManager defaultManager] fileExistsAtPath:customPath]) {
         UIImage *img = [UIImage imageWithContentsOfFile:customPath];
         if (img) return img;
@@ -16,14 +17,25 @@ static UIImage *getBall *customPath = [GPTSettings iconPath];
     return img;
 }
 
+// 单例：用于处理点击 / 拖拽
 @interface GPTFloatBallHandler : NSObject
-+ (void)ballTapped;
-+ (void)ballPanned:(UIPanGestureRecognizer *)pan;
++ (instancetype)shared;
+- (void)ballTapped;
+- (void)ballPanned:(UIPanGestureRecognizer *)pan;
 @end
 
 @implementation GPTFloatBallHandler
 
-+ (void)ballTapped {
++ (instancetype)shared {
+    static GPTFloatBallHandler *inst = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        inst = [[GPTFloatBallHandler alloc] init];
+    });
+    return inst;
+}
+
+- (void)ballTapped {
     GPTChatViewController *chatVC = [[GPTChatViewController alloc] init];
     UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:chatVC];
     UIWindow *chatWindow = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
@@ -40,7 +52,7 @@ static UIImage *getBall *customPath = [GPTSettings iconPath];
     };
 }
 
-+ (void)ballPanned:(UIPanGestureRecognizer *)pan {
+- (void)ballPanned:(UIPanGestureRecognizer *)pan {
     UIView *ball = pan.view;
     UIWindow *win = ball.window;
     CGPoint translation = [pan translationInView:win];
@@ -100,12 +112,13 @@ static void createFloatBall(void) {
     gFloatButton.layer.shadowRadius = 4;
     gFloatButton.layer.masksToBounds = NO;
 
-    [gFloatButton addTarget:[GPTFloatBallHandler class]
+    // 用单例作为 target
+    [gFloatButton addTarget:[GPTFloatBallHandler shared]
                     action:@selector(ballTapped)
           forControlEvents:UIControlEventTouchUpInside];
 
     UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc]
-        initWithTarget:[GPTFloatBallHandler class]
+        initWithTarget:[GPTFloatBallHandler shared]
                 action:@selector(ballPanned:)];
     [gFloatButton addGestureRecognizer:pan];
 
@@ -132,6 +145,22 @@ static void removeFloatBall(void) {
     }
 }
 
+// 通知回调：必须是静态 C 函数，不能用 block（ARC 下会编译失败）
+static void settingsChangedCallback(CFNotificationCenterRef center,
+                                    void *observer,
+                                    CFStringRef name,
+                                    const void *object,
+                                    CFDictionaryRef userInfo) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if ([GPTSettings isEnabled]) {
+            removeFloatBall();
+            createFloatBall();
+        } else {
+            removeFloatBall();
+        }
+    });
+}
+
 %ctor {
     %init;
 
@@ -145,17 +174,7 @@ static void removeFloatBall(void) {
     CFNotificationCenterAddObserver(
         CFNotificationCenterGetDarwinNotifyCenter(),
         NULL,
-        (CFNotificationCallback)^(CFStringRef name, void *observer,
-                                   CFStringRef notifName, void *obj, CFDictionaryRef info) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                if ([GPTSettings isEnabled]) {
-                    removeFloatBall();
-                    createFloatBall();
-                } else {
-                    removeFloatBall();
-                }
-            });
-        },
+        settingsChangedCallback,
         CFSTR("com.yourname.gptfloatball/settingsChanged"),
         NULL,
         CFNotificationSuspensionBehaviorDeliverImmediately
