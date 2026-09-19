@@ -210,10 +210,9 @@ jobs:
 
           - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
               static NSString *cellID = @"ChatCell";
-              UITableView cellCell *cell = [tableView dequeueReusableCell;
-WithIdentifier:cellID];
+              UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:cellID];
               if (!cell) {
-                  cell          = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:cellID];
+                  cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:cellID];
                   cell.textLabel.numberOfLines = 0;
                   cell.textLabel.font = [UIFont systemFontOfSize:15];
                   cell.selectionStyle = UITableViewCellSelectionStyleNone;
@@ -223,7 +222,8 @@ WithIdentifier:cellID];
               cell.textLabel.text = isUser ? [NSString stringWithFormat:@"你: %@", msg[@"content"]]
                                             : [NSString stringWithFormat:@"GPT: %@", msg[@"content"]];
               cell.textLabel.textColor = isUser ? [UIColor systemBlueColor] : [UIColor labelColor];
-              return }
+              return cell;
+          }
 
           @end
           GPTCHEOF
