@@ -1,11 +1,10 @@
 #import <Preferences/PSListController.h>
 #import <spawn.h>
-#import <stdlib.h>
 
-// ==== 原来在 .h 里的 interface，现在内联到这里 ====
+// ==== 原来在 .h 里的 interface，内联到这里 ====
 @interface GPTFloatBallPrefsRootListController : PSListController
 @end
-// ==================================================
+// ==============================================
 
 #define kPrefsPlist @"/var/mobile/Library/Preferences/com.yourname.gptfloatball.plist"
 
@@ -53,7 +52,6 @@
             return;
         }
     }
-    system("killall -9 SpringBoard");
 }
 
 @end
