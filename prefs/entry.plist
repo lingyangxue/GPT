@@ -1,0 +1,10 @@
+{
+    entry = {
+        bundle = "GPTFloatBallPrefs";
+        cell = PSLinkCell;
+        detail = "GPTFloatBallPrefsRootListController";
+        icon = "ball_icon.png";
+        isController = 1;
+        label = "GPT悬浮球";
+    };
+}
