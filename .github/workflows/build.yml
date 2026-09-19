@@ -83,24 +83,19 @@ jobs:
                   [self.tableView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
                   [self.tableView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
                   [self.tableView.bottomAnchor constraintEqualToAnchor:inputBar.topAnchor],
-
                   [inputBar.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
                   [inputBar.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
                   [inputBar.bottomAnchor constraintEqualToAnchor:self.view.bottomAnchor],
                   [inputBar.heightAnchor constraintEqualToConstant:60],
-
                   [self.inputField.leadingAnchor constraintEqualToAnchor:inputBar.leadingAnchor constant:12],
                   [self.inputField.centerYAnchor constraintEqualToAnchor:inputBar.centerYAnchor constant:-10],
                   [self.inputField.trailingAnchor constraintEqualToAnchor:sendBtn.leadingAnchor constant:-8],
-
                   [sendBtn.trailingAnchor constraintEqualToAnchor:inputBar.trailingAnchor constant:-12],
                   [sendBtn.centerYAnchor constraintEqualToAnchor:self.inputField.centerYAnchor],
                   [sendBtn.widthAnchor constraintEqualToConstant:60],
-
                   [self.spinner.centerXAnchor constraintEqualToAnchor:inputBar.centerXAnchor],
                   [self.spinner.bottomAnchor constraintEqualToAnchor:inputBar.bottomAnchor constant:-4],
               ]];
-
               [self scrollToBottom];
           }
 
@@ -134,11 +129,9 @@ jobs:
               }
 
               self.inputField.text = @"";
-
               [self.messages addObject:@{@"role": @"user", @"content": text}];
               [self.tableView reloadData];
               [self scrollToBottom];
-
               [self.spinner startAnimating];
 
               NSMutableArray *apiMessages = [NSMutableArray array];
@@ -158,8 +151,7 @@ jobs:
               NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
               request.HTTPMethod = @"POST";
               [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
-              [request setValue:[NSString stringWithFormat:@"Bearer %@", apiKey]
-             forHTTPHeaderField:@"Authorization"];
+              [request setValue:[NSString stringWithFormat:@"Bearer %@", apiKey] forHTTPHeaderField:@"Authorization"];
               request.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
               request.timeoutInterval = 60;
 
@@ -167,31 +159,25 @@ jobs:
                   completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
                   dispatch_async(dispatch_get_main_queue(), ^{
                       [self.spinner stopAnimating];
-
                       if (error) {
-                          [self.messages addObject:@{@"role": @"assistant",
-                              @"content": [NSString stringWithFormat:@"请求失败: %@", error.localizedDescription]}];
+                          [self.messages addObject:@{@"role": @"assistant", @"content": [NSString stringWithFormat:@"请求失败: %@", error.localizedDescription]}];
                           [self.tableView reloadData];
                           [self scrollToBottom];
                           return;
                       }
-
                       NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
-
                       NSString *reply = nil;
                       if (json[@"choices"] && [json[@"choices"] count] > 0) {
                           reply = json[@"choices"][0][@"message"][@"content"];
                       } else if (json[@"error"]) {
                           reply = [NSString stringWithFormat:@"API错误: %@", json[@"error"][@"message"]];
                       }
-
                       if (reply.length > 0) {
                           [self.messages addObject:@{@"role": @"assistant", @"content": reply}];
                           [GPTSettings saveChatHistory:self.messages];
                       } else {
                           [self.messages addObject:@{@"role": @"assistant", @"content": @"未收到有效回复"}];
                       }
-
                       [self.tableView reloadData];
                       [self scrollToBottom];
                   });
@@ -219,12 +205,10 @@ jobs:
               }
               NSDictionary *msg = self.messages[indexPath.row];
               BOOL isUser = [msg[@"role"] isEqualToString:@"user"];
-              cell.textLabel.text = isUser ? [NSString stringWithFormat:@"你: %@", msg[@"content"]]
-                                            : [NSString stringWithFormat:@"GPT: %@", msg[@"content"]];
+              cell.textLabel.text = isUser ? [NSString stringWithFormat:@"你: %@", msg[@"content"]] : [NSString stringWithFormat:@"GPT: %@", msg[@"content"]];
               cell.textLabel.textColor = isUser ? [UIColor systemBlueColor] : [UIColor labelColor];
               return cell;
           }
-
           @end
           GPTCHEOF
 
@@ -243,15 +227,13 @@ jobs:
         uses: huami1314/theos-action@main
 
       - name: Setup GNU Make
-        run: |
-          echo "$(brew --prefix)/opt/make/libexec/gnubin" >> $GITHUB_PATH
+        run: echo "$(brew --prefix)/opt/make/libexec/gnubin" >> $GITHUB_PATH
 
       - name: Build package
         run: |
           mkdir -p packages
           make clean
           make package THEOS_PACKAGE_SCHEME=roothide FINALPACKAGE=1 -j$(sysctl -n hw.ncpu)
-          echo "构建完成，检查文件："
           find ${{ github.workspace }} -name "*.deb" -type f
 
       - name: Upload Deb
