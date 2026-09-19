@@ -1,4 +1,4 @@
-export THEOS = $(HOME)/theos
+export THEOS = $(CURDIR)/theos
 
 ifeq ($(THEOS_PACKAGE_SCHEME),roothide)
 ARCHS = arm64 arm64e
