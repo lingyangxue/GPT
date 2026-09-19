@@ -1,0 +1,9 @@
+Package: com.yourname.gptfloatball
+Name: GPTFloatBall
+Version: 1.0.0
+Architecture: iphoneos-arm64
+Description: 全局 GPT 悬浮球，点击即可对话，支持自定义图标与 API。
+Maintainer: yourname
+Author: yourname
+Section: Tweaks
+Depends: mobilesubstrate
