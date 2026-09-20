@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict><key>items</key><array>
+<dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>开关</string></dict>
+<dict><key>cell</key><string>PSSwitchCell</string><key>default</key><true/><key>defaults</key><string>com.yourname.gptfloatball</string><key>key</key><string>enabled</string><key>label</key><string>启用键盘助手</string></dict>
+<dict><key>cell</key><string>PSSwitchCell</string><key>default</key><true/><key>defaults</key><string>com.yourname.gptfloatball</string><key>key</key><string>ballEnabled</string><key>label</key><string>显示悬浮球</string></dict>
 <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>API 配置</string></dict>
 <dict><key>cell</key><string>PSEditTextCell</string><key>defaults</key><string>com.yourname.gptfloatball</string><key>key</key><string>apiKey</string><key>label</key><string>API Key</string><key>placeholder</key><string>sk-xxx</string></dict>
 <dict><key>cell</key><string>PSEditTextCell</string><key>defaults</key><string>com.yourname.gptfloatball</string><key>key</key><string>apiBaseURL</string><key>label</key><string>API 地址</string><key>placeholder</key><string>https://api.deepseek.com/v1/chat/completions</string></dict>
@@ -9,7 +12,7 @@
 <dict><key>cell</key><string>PSEditTextCell</string><key>defaults</key><string>com.yourname.gptfloatball</string><key>key</key><string>temperature</string><key>label</key><string>温度</string><key>placeholder</key><string>0.7</string></dict>
 <dict><key>cell</key><string>PSEditTextCell</string><key>defaults</key><string>com.yourname.gptfloatball</string><key>key</key><string>maxTokens</string><key>label</key><string>最大 tokens</string><key>placeholder</key><string>1024</string></dict>
 <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>悬浮球外观</string></dict>
-<dict><key>cell</key><string>PSEditTextCell</string><key>defaults</key><string>com.yourname.gptfloatball</string><key>key</key><string>ballSize</string><key>label</key><string>大小 40-150</string><key>placeholder</key><string>60</string></dict>
+<dict><key>cell</key><string>PSEditTextCell</string><key>defaults</key><string>com.yourname.gptfloatball</string><key>key</key><string>ballSize</string><key>label</key><string>大小 20-150</string><key>placeholder</key><string>36</string></dict>
 <dict><key>cell</key><string>PSEditTextCell</string><key>defaults</key><string>com.yourname.gptfloatball</string><key>key</key><string>ballOpacity</string><key>label</key><string>透明度 0.1-1.0</string><key>placeholder</key><string>0.9</string></dict>
 <dict><key>cell</key><string>PSButtonCell</string><key>label</key><string>从相册选择悬浮球图标</string><key>action</key><string>pickImage</string></dict>
 </array><key>title</key><string>GPT悬浮球</string></dict></plist>
