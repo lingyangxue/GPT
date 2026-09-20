@@ -221,7 +221,7 @@ jobs:
                       <key>key</key><string>enabled</string>
                       <key>label</key><string>启用悬浮球</string>
                   </dict>
-                  <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>API 配置</string><key>footerText</key><string>支持 OpenAI 及兼容接口</string></dict>
+                  <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>API 配置</string><key>footerText</key><string>输入 Key 和地址后，可在“模型”页自动拉取列表</string></dict>
                   <dict>
                       <key>cell</key><string>PSEditTextCell</string>
                       <key>defaults</key><string>com.yourname.gptfloatball</string>
@@ -238,22 +238,10 @@ jobs:
                   </dict>
                   <dict>
                       <key>cell</key><string>PSLinkCell</string>
-                      <key>detail</key><string>PSListItemsController</string>
+                      <key>detail</key><string>GPTModelSelectController</string>
                       <key>label</key><string>模型</string>
                       <key>key</key><string>modelName</string>
                       <key>defaults</key><string>com.yourname.gptfloatball</string>
-                      <key>validValues</key><array>
-                          <string>deepseek-chat</string>
-                          <string>deepseek-reasoner</string>
-                          <string>gpt-4o-mini</string>
-                          <string>gpt-4o</string>
-                      </array>
-                      <key>validTitles</key><array>
-                          <string>DeepSeek Chat</string>
-                          <string>DeepSeek Reasoner</string>
-                          <string>GPT-4o mini</string>
-                          <string>GPT-4o</string>
-                      </array>
                   </dict>
                   <dict>
                       <key>cell</key><string>PSEditTextCell</string>
@@ -303,11 +291,125 @@ jobs:
           #define kPrefsPlist @"/var/mobile/Library/Preferences/com.yourname.gptfloatball.plist"
           #define kIconPath @"/var/mobile/Library/Preferences/GPTFloatBall_icon.png"
 
+          // ========== 动态模型选择页面 ==========
+          @interface GPTModelSelectController : PSListController
+          @property (nonatomic, strong) NSMutableArray *modelList;
+          @end
+
+          @implementation GPTModelSelectController
+          - (void)viewDidLoad {
+              [super viewDidLoad];
+              self.title = @"选择模型";
+              self.modelList = [NSMutableArray array];
+              [self fetchModels];
+          }
+
+          - (void)fetchModels {
+              NSDictionary *prefs = [NSDictionary dictionaryWithContentsOfFile:kPrefsPlist] ?: @{};
+              NSString *apiKey = prefs[@"apiKey"] ?: @"";
+              NSString *baseURL = prefs[@"apiBaseURL"] ?: @"https://api.deepseek.com/v1/chat/completions";
+
+              if (apiKey.length == 0) {
+                  [self showError:@"请先填写 API Key"];
+                  return;
+              }
+
+              // 拼接 /models 地址
+              NSString *modelsURL = baseURL;
+              if ([modelsURL containsString:@"/chat/completions"]) {
+                  modelsURL = [modelsURL stringByReplacingOccurrencesOfString:@"/chat/completions" withString:@"/models"];
+              } else if ([modelsURL hasSuffix:@"/"]) {
+                  modelsURL = [modelsURL stringByAppendingString:@"models"];
+              } else {
+                  modelsURL = [modelsURL stringByAppendingString:@"/models"];
+              }
+
+              NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:modelsURL]];
+              req.HTTPMethod = @"GET";
+              [req setValue:[NSString stringWithFormat:@"Bearer %@", apiKey] forHTTPHeaderField:@"Authorization"];
+              req.timeoutInterval = 15;
+
+              // 显示加载
+              UIActivityIndicatorView *spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
+              spinner.center = self.view.center;
+              [spinner startAnimating];
+              [self.view addSubview:spinner];
+
+              [[[NSURLSession sharedSession] dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+                  dispatch_async(dispatch_get_main_queue(), ^{
+                      [spinner removeFromSuperview];
+                      if (error) { [self showError:error.localizedDescription]; return; }
+
+                      NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+                      NSArray *dataArray = json[@"data"];
+
+                      if (dataArray && [dataArray isKindOfClass:[NSArray class]]) {
+                          for (NSDictionary *model in dataArray) {
+                              NSString *modelID = model[@"id"];
+                              if (modelID.length > 0) {
+                                  [self.modelList addObject:modelID];
+                              }
+                          }
+                          [self reloadSpecifiers];
+                      } else {
+                          [self showError:@"获取模型失败，请检查 API 地址和 Key"];
+                      }
+                  });
+              }] resume];
+          }
+
+          - (NSArray *)specifiers {
+              if (!_specifiers) {
+                  _specifiers = [NSMutableArray array];
+              }
+              [(NSMutableArray *)_specifiers removeAllObjects];
+
+              NSMutableDictionary *prefs = [NSMutableDictionary dictionaryWithContentsOfFile:kPrefsPlist] ?: [NSMutableDictionary new];
+              NSString *currentModel = prefs[@"modelName"] ?: @"";
+
+              if (self.modelList.count == 0) {
+                  PSSpecifier *loading = [PSSpecifier preferenceSpecifierNamed:@"正在获取模型..." target:self set:nil get:nil detail:nil cell:PSStaticTextCell edit:nil];
+                  [(NSMutableArray *)_specifiers addObject:loading];
+              } else {
+                  for (NSString *model in self.modelList) {
+                      PSSpecifier *spec = [PSSpecifier preferenceSpecifierNamed:model target:self set:nil get:nil detail:nil cell:PSListItemCell edit:nil];
+                      [spec setProperty:model forKey:@"modelID"];
+                      if ([model isEqualToString:currentModel]) {
+                          [spec setProperty:@YES forKey:@"isSelected"];
+                      }
+                      [(NSMutableArray *)_specifiers addObject:spec];
+                  }
+              }
+              return _specifiers;
+          }
+
+          - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+              PSSpecifier *spec = [self specifierAtIndexPath:indexPath];
+              NSString *modelID = [spec propertyForKey:@"modelID"];
+              if (modelID.length == 0) return;
+
+              NSMutableDictionary *prefs = [NSMutableDictionary dictionaryWithContentsOfFile:kPrefsPlist] ?: [NSMutableDictionary new];
+              prefs[@"modelName"] = modelID;
+              [prefs writeToFile:kPrefsPlist atomically:YES];
+
+              // 通知上级页面刷新
+              CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.yourname.gptfloatball/settingsChanged"), NULL, NULL, YES);
+
+              [self.navigationController popViewControllerAnimated:YES];
+          }
+
+          - (void)showError:(NSString *)msg {
+              UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"出错" message:msg preferredStyle:UIAlertControllerStyleAlert];
+              [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+              [self presentViewController:alert animated:YES completion:nil];
+          }
+          @end
+
+          // ========== 主设置页面 ==========
           @interface GPTFloatBallPrefsRootListController : PSListController <UIImagePickerControllerDelegate, UINavigationControllerDelegate>
           @end
 
           @implementation GPTFloatBallPrefsRootListController
-
           - (NSArray *)specifiers {
               if (!_specifiers) {
                   _specifiers = [self loadSpecifiersFromPlistName:@"Root" target:self];
@@ -317,24 +419,28 @@ jobs:
 
           - (void)viewWillAppear:(BOOL)animated {
               [super viewWillAppear:animated];
+              [self reloadSpecifiers]; // 每次进来刷新模型显示
               self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc]
                   initWithTitle:@"应用更改" style:UIBarButtonItemStyleDone target:self action:@selector(apply)];
           }
 
           - (void)apply {
+              // 发送通知给 Tweak，让悬浮球立刻刷新
               CFNotificationCenterPostNotification(
                   CFNotificationCenterGetDarwinNotifyCenter(),
                   CFSTR("com.yourname.gptfloatball/settingsChanged"),
                   NULL, NULL, YES);
-              [self respring];
+
+              UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"设置已保存" message:@"悬浮球已自动刷新，返回桌面查看即可。" preferredStyle:UIAlertControllerStyleAlert];
+              [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+              [self presentViewController:alert animated:YES completion:nil];
           }
 
-          // 打开相册选图
           - (void)pickImage {
               UIImagePickerController *picker = [[UIImagePickerController alloc] init];
               picker.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
               picker.delegate = self;
-              picker.allowsEditing = YES; // 允许裁剪
+              picker.allowsEditing = YES;
               [self presentViewController:picker animated:YES completion:nil];
           }
 
@@ -342,23 +448,16 @@ jobs:
               UIImage *image = info[UIImagePickerControllerEditedImage] ?: info[UIImagePickerControllerOriginalImage];
               [picker dismissViewControllerAnimated:YES completion:^{
                   if (!image) return;
-                  // 缩放到 128x128
                   UIGraphicsBeginImageContextWithOptions(CGSizeMake(128, 128), NO, 1.0);
                   [image drawInRect:CGRectMake(0, 0, 128, 128)];
                   UIImage *scaled = UIGraphicsGetImageFromCurrentImageContext();
                   UIGraphicsEndImageContext();
-                  
                   NSData *data = UIImagePNGRepresentation(scaled);
                   [data writeToFile:kIconPath atomically:YES];
-                  
-                  // 更新配置
                   NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithContentsOfFile:kPrefsPlist] ?: [NSMutableDictionary new];
                   dict[@"iconPath"] = kIconPath;
                   [dict writeToFile:kPrefsPlist atomically:YES];
-                  
-                  // 通知 Tweak 刷新悬浮球
                   CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.yourname.gptfloatball/settingsChanged"), NULL, NULL, YES);
-                  
                   UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"成功" message:@"图标已更新，悬浮球会自动刷新" preferredStyle:UIAlertControllerStyleAlert];
                   [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
                   [self presentViewController:alert animated:YES completion:nil];
@@ -375,16 +474,6 @@ jobs:
               [dict writeToFile:kPrefsPlist atomically:YES];
               [self apply];
           }
-
-          - (void)respring {
-              pid_t pid;
-              const char *args[] = {"killall", "-9", "SpringBoard", NULL};
-              const char *paths[] = {"/var/jb/usr/bin/killall", "/usr/bin/killall", "/bin/killall", NULL};
-              for (int i = 0; paths[i] != NULL; i++) {
-                  if (posix_spawn(&pid, paths[i], NULL, NULL, (char * const *)args, NULL) == 0) return;
-              }
-          }
-
           @end
           CTLEOF
 
