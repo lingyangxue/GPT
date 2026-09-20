@@ -8,82 +8,20 @@ jobs:
         with:
           submodules: true
 
-      - name: Prepare prefs
+      - name: Kill prefs subproject
         run: |
           rm -rf prefs
-          mkdir -p prefs/Resources
-
-          cat > prefs/Ctrl.m << 'EOF'
-          #import <Preferences/PSListController.h>
-
-          @interface GPTFloatBallPrefsRootListController : PSListController
-          @end
-
-          @implementation GPTFloatBallPrefsRootListController
-
-          - (NSArray *)specifiers {
-              if (!_specifiers) {
-                  _specifiers = [self loadSpecifiersFromPlistName:@"Root" target:self];
-              }
-              return _specifiers;
-          }
-
-          @end
-          EOF
-
-          cat > prefs/Makefile << 'EOF'
-          include $(THEOS)/makefiles/common.mk
-          BUNDLE_NAME = GPTFloatBallPrefs
-          GPTFloatBallPrefs_FILES = Ctrl.m
-          GPTFloatBallPrefs_INSTALL_PATH = /Library/PreferenceBundles
-          GPTFloatBallPrefs_FRAMEWORKS = UIKit
-          GPTFloatBallPrefs_CFLAGS = -fobjc-arc
-          GPTFloatBallPrefs_LDFLAGS = -Wl,-undefined,dynamic_lookup
-          include $(THEOS_MAKE_PATH)/bundle.mk
-          internal-stage::
-          	$(ECHO_NOTHING)mkdir -p $(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences$(ECHO_END)
-          	$(ECHO_NOTHING)cp -f entry.plist $(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences/GPTFloatBall.plist$(ECHO_END)
-          EOF
-
-          cat > prefs/entry.plist << 'EOF'
-          { entry = { bundle = "GPTFloatBallPrefs"; cell = PSLinkCell; detail = "GPTFloatBallPrefsRootListController"; icon = "ball_icon.png"; isController = 1; label = "GPT悬浮球"; }; }
-          EOF
-
-          cat > prefs/Resources/Info.plist << 'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0"><dict>
-          <key>CFBundleExecutable</key><string>GPTFloatBallPrefs</string>
-          <key>CFBundleIdentifier</key><string>com.yourname.gptfloatball.prefs</string>
-          <key>CFBundleName</key><string>GPTFloatBallPrefs</string>
-          <key>CFBundlePackageType</key><string>BNDL</string>
-          <key>CFBundleShortVersionString</key><string>1.0.0</string>
-          <key>CFBundleVersion</key><string>1.0.0</string>
-          </dict></plist>
-          EOF
-
-          cat > prefs/Resources/Root.plist << 'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0"><dict><key>items</key><array>
-          <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>API 配置</string></dict>
-          <dict><key>cell</key><string>PSEditTextCell</string><key>defaults</key><string>com.yourname.gptfloatball</string><key>key</key><string>apiKey</string><key>label</key><string>API Key</string><key>placeholder</key><string>sk-xxxxxxxx</string></dict>
-          <dict><key>cell</key><string>PSEditTextCell</string><key>defaults</key><string>com.yourname.gptfloatball</string><key>key</key><string>apiBaseURL</string><key>label</key><string>API 地址</string><key>placeholder</key><string>https://api.deepseek.com/v1/chat/completions</string></dict>
-          <dict><key>cell</key><string>PSEditTextCell</string><key>defaults</key><string>com.yourname.gptfloatball</string><key>key</key><string>modelName</string><key>label</key><string>模型</string><key>placeholder</key><string>deepseek-chat</string></dict>
-          <dict><key>cell</key><string>PSEditTextCell</string><key>defaults</key><string>com.yourname.gptfloatball</string><key>key</key><string>systemPrompt</string><key>label</key><string>角色预设</string></dict>
-          <dict><key>cell</key><string>PSEditTextCell</string><key>defaults</key><string>com.yourname.gptfloatball</string><key>key</key><string>temperature</string><key>label</key><string>温度</string><key>placeholder</key><string>0.7</string></dict>
-          <dict><key>cell</key><string>PSEditTextCell</string><key>defaults</key><string>com.yourname.gptfloatball</string><key>key</key><string>maxTokens</string><key>label</key><string>最大 tokens</string><key>placeholder</key><string>1024</string></dict>
-          </array><key>title</key><string>GPT悬浮球</string></dict></plist>
-          EOF
-
-          cp -f prefs/entry.plist ./entry.plist
-          ls -la prefs/
+          sed -i '' '/SUBPROJECTS += prefs/d' Makefile
+          sed -i '' '/aggregate.mk/d' Makefile
+          grep -n "GPTFloatBall_FILES" Makefile
+          grep -n "SUBPROJECTS" Makefile || echo "no subprojects - OK"
+          cat Makefile
 
       - name: Cache
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/theos
-          key: theos-v10
+          key: theos-v11
 
       - name: Theos
         uses: huami1314/theos-action@main
