@@ -24,8 +24,8 @@
     return d;
 }
 
-+ (BOOL)isEnabled { return [self _boolForKey:@"enabled" def:YES]; }
-+ (BOOL)ballEnabled { return [self _boolForKey:@"ballEnabled" def:YES]; }
++ (BOOL)isEnabled { return YES; }
++ (BOOL)ballEnabled { return YES; }
 
 + (NSString *)apiKey { return [self _readPrefs][@"apiKey"] ?: @""; }
 + (NSString *)apiBaseURL {
