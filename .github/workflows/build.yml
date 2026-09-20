@@ -221,7 +221,7 @@ jobs:
                       <key>key</key><string>enabled</string>
                       <key>label</key><string>启用悬浮球</string>
                   </dict>
-                  <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>API 配置</string><key>footerText</key><string>输入 Key 和地址后，可在“模型”页自动拉取列表</string></dict>
+                  <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>API 配置</string><key>footerText</key><string>输入 Key 和地址后，点击右上角“应用更改”保存，再去选模型</string></dict>
                   <dict>
                       <key>cell</key><string>PSEditTextCell</string>
                       <key>defaults</key><string>com.yourname.gptfloatball</string>
@@ -288,6 +288,7 @@ jobs:
           #import <spawn.h>
           #import <UIKit/UIKit.h>
 
+          #define kPrefsDomain @"com.yourname.gptfloatball"
           #define kPrefsPlist @"/var/mobile/Library/Preferences/com.yourname.gptfloatball.plist"
           #define kIconPath @"/var/mobile/Library/Preferences/GPTFloatBall_icon.png"
 
@@ -301,16 +302,23 @@ jobs:
               [super viewDidLoad];
               self.title = @"选择模型";
               self.modelList = [NSMutableArray array];
-              [self fetchModels];
+              // 不立刻请求，等用户点击刷新按钮
           }
 
           - (void)fetchModels {
-              NSDictionary *prefs = [NSDictionary dictionaryWithContentsOfFile:kPrefsPlist] ?: @{};
-              NSString *apiKey = prefs[@"apiKey"] ?: @"";
-              NSString *baseURL = prefs[@"apiBaseURL"] ?: @"https://api.deepseek.com/v1/chat/completions";
+              // 强制同步 NSUserDefaults，解决输入框数据延迟问题
+              NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:kPrefsDomain];
+              [ud synchronize];
 
-              if (apiKey.length == 0) {
-                  [self showError:@"请先填写 API Key"];
+              NSString *apiKey = [ud stringForKey:@"apiKey"];
+              NSString *baseURL = [ud stringForKey:@"apiBaseURL"];
+
+              if (!baseURL || baseURL.length == 0) {
+                  baseURL = @"https://api.deepseek.com/v1/chat/completions";
+              }
+
+              if (!apiKey || apiKey.length == 0) {
+                  [self showError:@"请先在上一页填写 API Key，点击右上角‘应用更改’保存后，再点击本页的刷新按钮。"];
                   return;
               }
 
@@ -329,7 +337,6 @@ jobs:
               [req setValue:[NSString stringWithFormat:@"Bearer %@", apiKey] forHTTPHeaderField:@"Authorization"];
               req.timeoutInterval = 15;
 
-              // 显示加载
               UIActivityIndicatorView *spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
               spinner.center = self.view.center;
               [spinner startAnimating];
@@ -343,6 +350,7 @@ jobs:
                       NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
                       NSArray *dataArray = json[@"data"];
 
+                      [self.modelList removeAllObjects];
                       if (dataArray && [dataArray isKindOfClass:[NSArray class]]) {
                           for (NSDictionary *model in dataArray) {
                               NSString *modelID = model[@"id"];
@@ -364,12 +372,16 @@ jobs:
               }
               [(NSMutableArray *)_specifiers removeAllObjects];
 
-              NSMutableDictionary *prefs = [NSMutableDictionary dictionaryWithContentsOfFile:kPrefsPlist] ?: [NSMutableDictionary new];
+              // 添加刷新按钮
+              PSSpecifier *refreshBtn = [PSSpecifier preferenceSpecifierNamed:@"🔄 重新获取模型列表" target:self set:@selector(fetchModels) get:nil detail:nil cell:PSButtonCell edit:nil];
+              [(NSMutableArray *)_specifiers addObject:refreshBtn];
+
+              NSDictionary *prefs = [NSDictionary dictionaryWithContentsOfFile:kPrefsPlist] ?: @{};
               NSString *currentModel = prefs[@"modelName"] ?: @"";
 
               if (self.modelList.count == 0) {
-                  PSSpecifier *loading = [PSSpecifier preferenceSpecifierNamed:@"正在获取模型..." target:self set:nil get:nil detail:nil cell:PSStaticTextCell edit:nil];
-                  [(NSMutableArray *)_specifiers addObject:loading];
+                  PSSpecifier *hint = [PSSpecifier preferenceSpecifierNamed:@"请确保 API Key 已保存，点击上方按钮获取" target:self set:nil get:nil detail:nil cell:PSStaticTextCell edit:nil];
+                  [(NSMutableArray *)_specifiers addObject:hint];
               } else {
                   for (NSString *model in self.modelList) {
                       PSSpecifier *spec = [PSSpecifier preferenceSpecifierNamed:model target:self set:nil get:nil detail:nil cell:PSListItemCell edit:nil];
@@ -392,14 +404,12 @@ jobs:
               prefs[@"modelName"] = modelID;
               [prefs writeToFile:kPrefsPlist atomically:YES];
 
-              // 通知上级页面刷新
               CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.yourname.gptfloatball/settingsChanged"), NULL, NULL, YES);
-
               [self.navigationController popViewControllerAnimated:YES];
           }
 
           - (void)showError:(NSString *)msg {
-              UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"出错" message:msg preferredStyle:UIAlertControllerStyleAlert];
+              UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"提示" message:msg preferredStyle:UIAlertControllerStyleAlert];
               [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
               [self presentViewController:alert animated:YES completion:nil];
           }
@@ -419,19 +429,23 @@ jobs:
 
           - (void)viewWillAppear:(BOOL)animated {
               [super viewWillAppear:animated];
-              [self reloadSpecifiers]; // 每次进来刷新模型显示
+              [self reloadSpecifiers];
               self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc]
                   initWithTitle:@"应用更改" style:UIBarButtonItemStyleDone target:self action:@selector(apply)];
           }
 
           - (void)apply {
-              // 发送通知给 Tweak，让悬浮球立刻刷新
+              // 强制同步输入框内容到 plist
+              NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:kPrefsDomain];
+              [ud synchronize];
+
+              // 发送通知给 Tweak 刷新
               CFNotificationCenterPostNotification(
                   CFNotificationCenterGetDarwinNotifyCenter(),
                   CFSTR("com.yourname.gptfloatball/settingsChanged"),
                   NULL, NULL, YES);
 
-              UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"设置已保存" message:@"悬浮球已自动刷新，返回桌面查看即可。" preferredStyle:UIAlertControllerStyleAlert];
+              UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"保存成功" message:@"设置已生效，悬浮球已自动刷新。现在可以点‘模型’去获取列表了。" preferredStyle:UIAlertControllerStyleAlert];
               [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
               [self presentViewController:alert animated:YES completion:nil];
           }
