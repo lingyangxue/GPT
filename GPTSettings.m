@@ -40,7 +40,7 @@
 + (CGFloat)ballSize {
     NSString *s = [self _readPrefs][@"ballSize"];
     CGFloat v = s.length > 0 ? [s floatValue] : 60;
-    if (v < 40) v = 40;
+    if (v < 10) v = 10;
     if (v > 150) v = 150;
     return v;
 }
