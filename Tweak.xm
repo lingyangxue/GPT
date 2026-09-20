@@ -2,13 +2,82 @@
 #import <roothide.h>
 #import <objc/runtime.h>
 #import "GPTSettings.h"
+#import "GPTChatViewController.h"
+
+// ==================== 键盘工具栏 ====================
+@interface GPTToolbar : UIView
++ (instancetype)shared;
+@end
+
+@implementation GPTToolbar
+
++ (instancetype)shared {
+    static GPTToolbar *t = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        CGFloat W = [UIScreen mainScreen].bounds.size.width;
+        t = [[GPTToolbar alloc] initWithFrame:CGRectMake(0, 0, W, 44)];
+        t.backgroundColor = [UIColor secondarySystemBackgroundColor];
+        t.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+
+        UIButton *btn = [UIButton buttonWithType:UIButtonTypeSystem];
+        btn.frame = CGRectMake(12, 7, 130, 30);
+        [btn setTitle:@"🤖 GPT 助手" forState:UIControlStateNormal];
+        btn.backgroundColor = [UIColor colorWithRed:0.1 green:0.45 blue:0.91 alpha:1.0];
+        [btn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+        btn.titleLabel.font = [UIFont boldSystemFontOfSize:14];
+        btn.layer.cornerRadius = 8;
+        [btn addTarget:t action:@selector(openChat) forControlEvents:UIControlEventTouchUpInside];
+        [t addSubview:btn];
+    });
+    return t;
+}
+
+- (void)openChat {
+    UIWindow *kw = nil;
+    for (UIWindow *w in [UIApplication sharedApplication].windows) {
+        if (w.isKeyWindow) { kw = w; break; }
+    }
+    if (!kw) return;
+    UIViewController *top = kw.rootViewController;
+    while (top.presentedViewController) top = top.presentedViewController;
+    if (!top) return;
+
+    GPTChatViewController *vc = [GPTChatViewController new];
+    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:vc];
+    [top presentViewController:nav animated:YES completion:nil];
+}
+
+@end
+
+// swizzle inputAccessoryView：所有输入框自动挂上工具栏
+%hook UITextField
+- (UIView *)inputAccessoryView {
+    UIView *v = %orig;
+    if (v) return v;
+    return [GPTToolbar shared];
+}
+%end
+
+%hook UITextView
+- (UIView *)inputAccessoryView {
+    UIView *v = %orig;
+    if (v) return v;
+    return [GPTToolbar shared];
+}
+%end
+
+// ==================== 悬浮球（只在 SpringBoard） ====================
+static BOOL isSB(void) {
+    return [[NSBundle mainBundle].bundleIdentifier isEqualToString:@"com.apple.springboard"];
+}
 
 static UIWindow *ballWin = nil;
-static UIButton *overlay = nil;
 static UIView *dlg = nil;
 static UIView *titleBar = nil;
 static UILabel *titleLbl = nil;
 static UIButton *clearBtn = nil;
+static UIButton *closeBtn = nil;
 static UIView *inputBar = nil;
 static UIButton *polishBtn = nil;
 static UIButton *sendBtn = nil;
@@ -16,9 +85,6 @@ static UITableView *chatTable = nil;
 static UITextField *chatInput = nil;
 static NSMutableArray *msgs = nil;
 static CGFloat gKbHeight = 0;
-
-static void makeBall(void);
-static void removeBall(void);
 
 @interface ChatBall : NSObject <UITableViewDelegate, UITableViewDataSource, UITextFieldDelegate>
 + (instancetype)shared;
@@ -54,31 +120,26 @@ static void removeBall(void);
     CGFloat W = screen.size.width;
     CGFloat H = screen.size.height;
     CGFloat kbH = gKbHeight;
-    CGFloat scale = [GPTSettings windowScale];
-    CGFloat availH = H - kbH;
-    CGFloat topY = 50;
-    CGFloat maxH = availH - topY - 10;
-    if (maxH < 240) maxH = 240;
-    CGFloat dialogH = MIN(H * scale, maxH);
-    CGFloat dialogW = W * scale;
-    CGFloat dialogX = (W - dialogW) / 2;
-    CGFloat dialogY = topY + (maxH - dialogH) / 2;
-    if (dialogY < topY) dialogY = topY;
-    dlg.frame = CGRectMake(dialogX, dialogY, dialogW, dialogH);
 
-    CGFloat tbH = 50, ibH = 60;
-    titleBar.frame = CGRectMake(0, 0, dialogW, tbH);
-    titleLbl.frame = CGRectMake(0, 0, dialogW, tbH);
-    clearBtn.frame = CGRectMake(dialogW - 60, 5, 50, 40);
-    inputBar.frame = CGRectMake(0, dialogH - ibH, dialogW, ibH);
+    CGFloat tbH = 30;
+    CGFloat ibH = 60;
+    CGFloat chatH = (kbH > 0) ? 200 : 0;
+    CGFloat dlgH = tbH + chatH + ibH;
+    CGFloat dlgY = (kbH > 0) ? (H - kbH - dlgH) : (H - dlgH);
+
+    dlg.frame = CGRectMake(0, dlgY, W, dlgH);
+    titleBar.frame = CGRectMake(0, 0, W, tbH);
+    titleLbl.frame = CGRectMake(0, 0, W, tbH);
+    clearBtn.frame = CGRectMake(W - 100, 0, 50, tbH);
+    closeBtn.frame = CGRectMake(W - 44, 0, 44, tbH);
+    inputBar.frame = CGRectMake(0, dlgH - ibH, W, ibH);
+    chatTable.frame = CGRectMake(0, tbH, W, chatH);
 
     CGFloat btnW = 50;
-    CGFloat tfW = dialogW - 2 * btnW - 24;
+    CGFloat tfW = W - 2 * btnW - 24;
     chatInput.frame = CGRectMake(12, 10, tfW, 40);
     polishBtn.frame = CGRectMake(12 + tfW, 10, btnW, 40);
     sendBtn.frame = CGRectMake(12 + tfW + btnW, 10, btnW, 40);
-
-    chatTable.frame = CGRectMake(0, tbH, dialogW, dialogH - tbH - ibH);
 }
 
 - (void)kbShow:(NSNotification *)n {
@@ -93,25 +154,18 @@ static void removeBall(void);
 }
 
 - (void)tap {
-    if (overlay) return;
+    if (dlg) return;
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     UIWindow *host = [self hostWin];
     if (!host) return;
-    CGRect screen = host.bounds;
     if (!msgs) msgs = [NSMutableArray array];
     gKbHeight = 0;
 
-    overlay = [UIButton buttonWithType:UIButtonTypeCustom];
-    overlay.frame = screen;
-    overlay.backgroundColor = [UIColor colorWithWhite:0 alpha:0.4];
-    [overlay addTarget:self action:@selector(close) forControlEvents:UIControlEventTouchUpInside];
-    [host addSubview:overlay];
-
     dlg = [[UIView alloc] init];
     dlg.backgroundColor = [UIColor systemBackgroundColor];
-    dlg.layer.cornerRadius = 16;
+    dlg.layer.cornerRadius = 12;
     dlg.layer.masksToBounds = YES;
-    [overlay addSubview:dlg];
+    [host addSubview:dlg];
 
     titleBar = [[UIView alloc] init];
     titleBar.backgroundColor = [UIColor secondarySystemBackgroundColor];
@@ -120,13 +174,21 @@ static void removeBall(void);
     titleLbl = [[UILabel alloc] init];
     titleLbl.text = @"GPT 助手";
     titleLbl.textAlignment = NSTextAlignmentCenter;
-    titleLbl.font = [UIFont boldSystemFontOfSize:17];
+    titleLbl.font = [UIFont boldSystemFontOfSize:13];
+    titleLbl.textColor = [UIColor secondaryLabelColor];
     [titleBar addSubview:titleLbl];
 
     clearBtn = [UIButton buttonWithType:UIButtonTypeSystem];
     [clearBtn setTitle:@"清空" forState:UIControlStateNormal];
+    clearBtn.titleLabel.font = [UIFont systemFontOfSize:13];
     [clearBtn addTarget:self action:@selector(clearAll) forControlEvents:UIControlEventTouchUpInside];
     [titleBar addSubview:clearBtn];
+
+    closeBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    [closeBtn setTitle:@"✕" forState:UIControlStateNormal];
+    closeBtn.titleLabel.font = [UIFont systemFontOfSize:16];
+    [closeBtn addTarget:self action:@selector(close) forControlEvents:UIControlEventTouchUpInside];
+    [titleBar addSubview:closeBtn];
 
     inputBar = [[UIView alloc] init];
     inputBar.backgroundColor = [UIColor secondarySystemBackgroundColor];
@@ -154,7 +216,7 @@ static void removeBall(void);
     chatTable.delegate = self;
     chatTable.dataSource = self;
     chatTable.rowHeight = UITableViewAutomaticDimension;
-    chatTable.estimatedRowHeight = 50;
+    chatTable.estimatedRowHeight = 44;
     chatTable.separatorStyle = UITableViewCellSeparatorStyleNone;
     [dlg addSubview:chatTable];
 
@@ -171,16 +233,13 @@ static void removeBall(void);
 - (void)close {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [chatInput resignFirstResponder];
-    if (overlay) { [overlay removeFromSuperview]; overlay = nil; }
-    dlg = nil; titleBar = nil; titleLbl = nil; clearBtn = nil;
+    if (dlg) { [dlg removeFromSuperview]; dlg = nil; }
+    titleBar = nil; titleLbl = nil; clearBtn = nil; closeBtn = nil;
     inputBar = nil; polishBtn = nil; sendBtn = nil; chatTable = nil; chatInput = nil;
     gKbHeight = 0;
 }
 
-- (void)clearAll {
-    [msgs removeAllObjects];
-    [chatTable reloadData];
-}
+- (void)clearAll { [msgs removeAllObjects]; [chatTable reloadData]; }
 
 - (void)send {
     NSString *t = [chatInput.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
@@ -195,7 +254,6 @@ static void removeBall(void);
     [self callAPI:arr polish:NO];
 }
 
-// ============ 润色：让话说得更有意思 ============
 - (void)polish {
     NSString *t = [chatInput.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     if (t.length == 0) { [self alert:@"请先在输入框输入要润色的文字"]; return; }
@@ -210,7 +268,6 @@ static void removeBall(void);
 - (void)callAPI:(NSArray *)arr polish:(BOOL)polish {
     NSString *key = [GPTSettings apiKey];
     if (key.length == 0) { [self alert:@"请先在 设置 → GPT悬浮球 里填 API Key"]; return; }
-
     NSDictionary *body = @{
         @"model": [GPTSettings modelName],
         @"messages": arr,
@@ -223,7 +280,6 @@ static void removeBall(void);
     [req setValue:[NSString stringWithFormat:@"Bearer %@", key] forHTTPHeaderField:@"Authorization"];
     req.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
     req.timeoutInterval = 60;
-
     [[[NSURLSession sharedSession] dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *resp, NSError *err) {
         dispatch_async(dispatch_get_main_queue(), ^{
             if (err) { [self alert:[NSString stringWithFormat:@"网络错误: %@", err.localizedDescription]]; return; }
@@ -283,34 +339,29 @@ static void removeBall(void);
 
 - (NSInteger)tableView:(UITableView *)tv numberOfRowsInSection:(NSInteger)s { return msgs.count; }
 
-// ============ 每条消息：文字 + 右侧复制按钮 ============
 - (UITableViewCell *)tableView:(UITableView *)tv cellForRowAtIndexPath:(NSIndexPath *)ip {
     static NSString *cid = @"c";
     UITableViewCell *cell = [tv dequeueReusableCellWithIdentifier:cid];
     if (!cell) {
         cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:cid];
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
-
         UILabel *lbl = [[UILabel alloc] init];
         lbl.numberOfLines = 0;
         lbl.font = [UIFont systemFontOfSize:15];
         lbl.tag = 9999;
         lbl.translatesAutoresizingMaskIntoConstraints = NO;
         [cell.contentView addSubview:lbl];
-
         UIButton *copyBtn = [UIButton buttonWithType:UIButtonTypeSystem];
         [copyBtn setTitle:@"📋" forState:UIControlStateNormal];
         copyBtn.titleLabel.font = [UIFont systemFontOfSize:16];
         copyBtn.tag = 9998;
         copyBtn.translatesAutoresizingMaskIntoConstraints = NO;
         [cell.contentView addSubview:copyBtn];
-
         [NSLayoutConstraint activateConstraints:@[
             [lbl.leadingAnchor constraintEqualToAnchor:cell.contentView.leadingAnchor constant:16],
             [lbl.topAnchor constraintEqualToAnchor:cell.contentView.topAnchor constant:8],
             [lbl.bottomAnchor constraintEqualToAnchor:cell.contentView.bottomAnchor constant:-8],
             [lbl.trailingAnchor constraintEqualToAnchor:copyBtn.leadingAnchor constant:-6],
-
             [copyBtn.trailingAnchor constraintEqualToAnchor:cell.contentView.trailingAnchor constant:-10],
             [copyBtn.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor],
             [copyBtn.widthAnchor constraintEqualToConstant:36],
@@ -319,16 +370,13 @@ static void removeBall(void);
     }
     UILabel *lbl = [cell.contentView viewWithTag:9999];
     UIButton *copyBtn = [cell.contentView viewWithTag:9998];
-
     NSDictionary *m = msgs[ip.row];
     BOOL u = [m[@"role"] isEqualToString:@"user"];
     lbl.text = u ? [NSString stringWithFormat:@"你: %@", m[@"content"]] : [NSString stringWithFormat:@"GPT: %@", m[@"content"]];
     lbl.textColor = u ? [UIColor systemBlueColor] : [UIColor labelColor];
-
     [copyBtn removeTarget:nil action:nil forControlEvents:UIControlEventAllEvents];
     objc_setAssociatedObject(copyBtn, "row", @(ip.row), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     [copyBtn addTarget:self action:@selector(copyMsg:) forControlEvents:UIControlEventTouchUpInside];
-
     return cell;
 }
 
@@ -368,7 +416,7 @@ static void removeBall(void);
 
 @end
 
-// ============ 悬浮球创建 ============
+// ==================== 悬浮球创建 ====================
 static UIWindowScene *activeScene(void) {
     for (UIScene *s in [UIApplication sharedApplication].connectedScenes) {
         if ([s isKindOfClass:[UIWindowScene class]] && s.activationState == UISceneActivationStateForegroundActive) {
@@ -379,6 +427,7 @@ static UIWindowScene *activeScene(void) {
 }
 
 static void makeBall(void) {
+    if (!isSB()) return;
     if (ballWin) return;
     UIWindowScene *s = activeScene();
     if (!s) {
@@ -436,8 +485,8 @@ static void onSettingsChanged(CFNotificationCenterRef c, void *o, CFStringRef n,
     dispatch_async(dispatch_get_main_queue(), ^{ removeBall(); makeBall(); });
 }
 
-// ============ 看门狗：scene 变了就重建悬浮球 ============
 static void watchdogTick(void) {
+    if (!isSB()) return;
     UIWindowScene *a = activeScene();
     if (!a) return;
     if (ballWin && ballWin.windowScene == a && !ballWin.hidden) return;
@@ -447,12 +496,13 @@ static void watchdogTick(void) {
 
 %ctor {
     %init;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        makeBall();
-        // 每 1.5 秒检查一次悬浮球状态
-        [NSTimer scheduledTimerWithTimeInterval:1.5 repeats:YES block:^(NSTimer *t) {
-            watchdogTick();
-        }];
-    });
+    if (isSB()) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            makeBall();
+            [NSTimer scheduledTimerWithTimeInterval:1.5 repeats:YES block:^(NSTimer *t) {
+                watchdogTick();
+            }];
+        });
+    }
     CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, onSettingsChanged, CFSTR("com.yourname.gptfloatball/settingsChanged"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
 }
