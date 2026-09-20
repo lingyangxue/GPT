@@ -16,13 +16,12 @@ static void showKbBar(CGFloat kbY, CGFloat kbW) {
     }
     if (!scene) return;
 
-    CGFloat H = 44;
+        CGFloat H = 44;
+    CGFloat screenH = [UIScreen mainScreen].bounds.size.height;
+    CGFloat y = kbY - H;
+    if (y < 0) y = screenH - H - 300;
     kbBarWin = [[UIWindow alloc] initWithWindowScene:scene];
-    kbBarWin.frame = CGRectMake(0, kbY - H, kbW, H);
-    kbBarWin.windowLevel = UIWindowLevelAlert + 500;
-    kbBarWin.backgroundColor = [UIColor secondarySystemBackgroundColor];
-    kbBarWin.rootViewController = [UIViewController new];
-    kbBarWin.hidden = NO;
+    kbBarWin.frame = CGRectMake(0, y, kbW, H);
 
     UIButton *btn = [UIButton buttonWithType:UIButtonTypeSystem];
     btn.frame = CGRectMake(12, 7, 130, 30);
