@@ -3,7 +3,15 @@
 #import "GPTSettings.h"
 
 static UIWindow *ballWin = nil;
-static UIView *overlay = nil;
+static UIButton *overlay = nil;
+static UIView *dlg = nil;
+static UIView *titleBar = nil;
+static UILabel *titleLbl = nil;
+static UIButton *clearBtn = nil;
+static UIButton *closeBtn = nil;
+static UIView *inputBar = nil;
+static UIButton *polishBtn = nil;
+static UIButton *sendBtn = nil;
 static UITableView *chatTable = nil;
 static UITextField *chatInput = nil;
 static NSMutableArray *msgs = nil;
@@ -16,6 +24,7 @@ static NSMutableArray *msgs = nil;
 - (void)send;
 - (void)polish;
 - (void)clearAll;
+- (void)relayout:(CGFloat)kbH;
 @end
 
 @implementation ChatBall
@@ -30,13 +39,64 @@ static NSMutableArray *msgs = nil;
     for (UIScene *sc in [UIApplication sharedApplication].connectedScenes) {
         if (![sc isKindOfClass:[UIWindowScene class]]) continue;
         UIWindowScene *ws = (UIWindowScene *)sc;
-        for (UIWindow *w in ws.windows) {
-            if (w.isKeyWindow) return w;
-        }
+        for (UIWindow *w in ws.windows) if (w.isKeyWindow) return w;
     }
     return [UIApplication sharedApplication].windows.firstObject;
 }
 
+// ============ 根据键盘高度重排所有元素 ============
+- (void)relayout:(CGFloat)kbH {
+    if (!dlg) return;
+    CGRect screen = [UIScreen mainScreen].bounds;
+    CGFloat W = screen.size.width;
+    CGFloat H = screen.size.height;
+
+    CGFloat scale = [GPTSettings windowScale];
+    CGFloat availH = H - kbH;
+    CGFloat topY = 50;                              // 顶部留出状态栏
+    CGFloat maxH = availH - topY - 10;
+    if (maxH < 240) maxH = 240;
+
+    CGFloat dialogH = MIN(H * scale, maxH);
+    CGFloat dialogW = W * scale;
+    CGFloat dialogX = (W - dialogW) / 2;
+    CGFloat dialogY = topY + (maxH - dialogH) / 2;
+    if (dialogY < topY) dialogY = topY;
+
+    CGRect df = CGRectMake(dialogX, dialogY, dialogW, dialogH);
+    if (kbH > 0) {
+        [UIView animateWithDuration:0.25 animations:^{ dlg.frame = df; }];
+    } else {
+        dlg.frame = df;
+    }
+
+    CGFloat tbH = 50, cbH = 46, ibH = 60;
+    titleBar.frame = CGRectMake(0, 0, dialogW, tbH);
+    titleLbl.frame = CGRectMake(0, 0, dialogW, tbH);
+    clearBtn.frame = CGRectMake(dialogW - 60, 5, 50, 40);
+    closeBtn.frame = CGRectMake(0, dialogH - cbH, dialogW, cbH);
+    inputBar.frame = CGRectMake(0, dialogH - cbH - ibH, dialogW, ibH);
+
+    CGFloat btnW = 50;
+    CGFloat tfW = dialogW - 2 * btnW - 24;
+    chatInput.frame = CGRectMake(12, 10, tfW, 40);
+    polishBtn.frame = CGRectMake(12 + tfW, 10, btnW, 40);
+    sendBtn.frame = CGRectMake(12 + tfW + btnW, 10, btnW, 40);
+
+    chatTable.frame = CGRectMake(0, tbH, dialogW, dialogH - tbH - cbH - ibH);
+}
+
+// ============ 键盘通知 ============
+- (void)kbShow:(NSNotification *)n {
+    CGRect kb = [n.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];
+    [self relayout:kb.size.height];
+}
+
+- (void)kbHide:(NSNotification *)n {
+    [self relayout:0];
+}
+
+// ============ 打开对话 ============
 - (void)tap {
     if (overlay) return;
     UIWindow *host = [self hostWin];
@@ -44,102 +104,90 @@ static NSMutableArray *msgs = nil;
     CGRect screen = host.bounds;
     if (!msgs) msgs = [NSMutableArray array];
 
-    // 全屏暗色按钮，点击任意暗区即可关闭
-    UIButton *bg = [UIButton buttonWithType:UIButtonTypeCustom];
-    bg.frame = screen;
-    bg.backgroundColor = [UIColor colorWithWhite:0 alpha:0.4];
-    [bg addTarget:self action:@selector(close) forControlEvents:UIControlEventTouchUpInside];
-    [host addSubview:bg];
-    overlay = bg;
+    // 背景（可点击关闭）
+    overlay = [UIButton buttonWithType:UIButtonTypeCustom];
+    overlay.frame = screen;
+    overlay.backgroundColor = [UIColor colorWithWhite:0 alpha:0.4];
+    [overlay addTarget:self action:@selector(close) forControlEvents:UIControlEventTouchUpInside];
+    [host addSubview:overlay];
 
     // 对话框
-    CGFloat scale = [GPTSettings windowScale];
-    CGFloat w = screen.size.width * scale;
-    CGFloat h = screen.size.height * scale;
-    UIView *dialog = [[UIView alloc] initWithFrame:CGRectMake((screen.size.width-w)/2, (screen.size.height-h)/2, w, h)];
-    dialog.backgroundColor = [UIColor systemBackgroundColor];
-    dialog.layer.cornerRadius = 16;
-    dialog.layer.masksToBounds = YES;
-    dialog.userInteractionEnabled = YES;
-    [bg addSubview:dialog];
+    dlg = [[UIView alloc] init];
+    dlg.backgroundColor = [UIColor systemBackgroundColor];
+    dlg.layer.cornerRadius = 16;
+    dlg.layer.masksToBounds = YES;
+    [overlay addSubview:dlg];
 
     // 标题栏
-    UIView *titleBar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 50)];
+    titleBar = [[UIView alloc] init];
     titleBar.backgroundColor = [UIColor secondarySystemBackgroundColor];
-    [dialog addSubview:titleBar];
+    [dlg addSubview:titleBar];
 
-    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, w, 50)];
-    title.text = @"GPT 助手";
-    title.textAlignment = NSTextAlignmentCenter;
-    title.font = [UIFont boldSystemFontOfSize:17];
-    [titleBar addSubview:title];
+    titleLbl = [[UILabel alloc] init];
+    titleLbl.text = @"GPT 助手";
+    titleLbl.textAlignment = NSTextAlignmentCenter;
+    titleLbl.font = [UIFont boldSystemFontOfSize:17];
+    [titleBar addSubview:titleLbl];
 
-    UIButton *clearBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    clearBtn.frame = CGRectMake(w - 60, 5, 50, 40);
+    clearBtn = [UIButton buttonWithType:UIButtonTypeSystem];
     [clearBtn setTitle:@"清空" forState:UIControlStateNormal];
     [clearBtn addTarget:self action:@selector(clearAll) forControlEvents:UIControlEventTouchUpInside];
     [titleBar addSubview:clearBtn];
 
-    // 底部关闭按钮（大而醒目）
-    CGFloat closeH = 50;
-    UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    closeBtn.frame = CGRectMake(0, h - closeH, w, closeH);
-    [closeBtn setTitle:@"关闭" forState:UIControlStateNormal];
+    // 底部关闭按钮
+    closeBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    [closeBtn setTitle:@"关 闭" forState:UIControlStateNormal];
     closeBtn.titleLabel.font = [UIFont boldSystemFontOfSize:17];
     closeBtn.backgroundColor = [UIColor systemRedColor];
     [closeBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
     [closeBtn addTarget:self action:@selector(close) forControlEvents:UIControlEventTouchUpInside];
-    [dialog addSubview:closeBtn];
+    [dlg addSubview:closeBtn];
 
     // 输入栏
-    CGFloat barH = 60;
-    CGFloat barY = h - closeH - barH;
-    UIView *bar = [[UIView alloc] initWithFrame:CGRectMake(0, barY, w, barH)];
-    bar.backgroundColor = [UIColor secondarySystemBackgroundColor];
-    [dialog addSubview:bar];
+    inputBar = [[UIView alloc] init];
+    inputBar.backgroundColor = [UIColor secondarySystemBackgroundColor];
+    [dlg addSubview:inputBar];
 
-    CGFloat btnW = 50;
-    CGFloat tfW = w - 2 * btnW - 24;
-    chatInput = [[UITextField alloc] initWithFrame:CGRectMake(12, 10, tfW, 40)];
+    chatInput = [[UITextField alloc] init];
     chatInput.placeholder = @"输入消息...";
     chatInput.borderStyle = UITextBorderStyleRoundedRect;
     chatInput.delegate = self;
     chatInput.returnKeyType = UIReturnKeySend;
     chatInput.backgroundColor = [UIColor systemBackgroundColor];
-    [bar addSubview:chatInput];
+    [inputBar addSubview:chatInput];
 
-    UIButton *polishBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    polishBtn.frame = CGRectMake(12 + tfW, 10, btnW, 40);
+    polishBtn = [UIButton buttonWithType:UIButtonTypeSystem];
     [polishBtn setTitle:@"润色" forState:UIControlStateNormal];
     [polishBtn addTarget:self action:@selector(polish) forControlEvents:UIControlEventTouchUpInside];
-    [bar addSubview:polishBtn];
+    [inputBar addSubview:polishBtn];
 
-    UIButton *sendBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    sendBtn.frame = CGRectMake(12 + tfW + btnW, 10, btnW, 40);
+    sendBtn = [UIButton buttonWithType:UIButtonTypeSystem];
     [sendBtn setTitle:@"发送" forState:UIControlStateNormal];
     [sendBtn addTarget:self action:@selector(send) forControlEvents:UIControlEventTouchUpInside];
-    [bar addSubview:sendBtn];
+    [inputBar addSubview:sendBtn];
 
     // 对话列表
-    chatTable = [[UITableView alloc] initWithFrame:CGRectMake(0, 50, w, barY - 50) style:UITableViewStylePlain];
+    chatTable = [[UITableView alloc] init];
     chatTable.delegate = self;
     chatTable.dataSource = self;
     chatTable.rowHeight = UITableViewAutomaticDimension;
     chatTable.estimatedRowHeight = 50;
     chatTable.separatorStyle = UITableViewCellSeparatorStyleNone;
-    [dialog addSubview:chatTable];
+    [dlg addSubview:chatTable];
 
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(kbShow:) name:UIKeyboardWillShowNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(kbHide:) name:UIKeyboardWillHideNotification object:nil];
+
+    [self relayout:0];  // 先按无键盘布局
     [chatInput becomeFirstResponder];
 }
 
 - (void)close {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
     [chatInput resignFirstResponder];
-    if (overlay) {
-        [overlay removeFromSuperview];
-        overlay = nil;
-    }
-    chatTable = nil;
-    chatInput = nil;
+    if (overlay) { [overlay removeFromSuperview]; overlay = nil; }
+    dlg = nil; titleBar = nil; titleLbl = nil; clearBtn = nil; closeBtn = nil;
+    inputBar = nil; polishBtn = nil; sendBtn = nil; chatTable = nil; chatInput = nil;
 }
 
 - (void)clearAll {
