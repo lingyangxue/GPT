@@ -52,6 +52,8 @@ jobs:
           + (double)temperature;
           + (NSInteger)maxTokens;
           + (CGFloat)ballSize;
+          + (CGFloat)ballOpacity;
+          + (CGFloat)windowScale;
           + (NSArray *)chatHistory;
           + (void)saveChatHistory:(NSArray *)history;
           + (void)clearHistory;
@@ -107,6 +109,20 @@ jobs:
               if (v > 150) v = 150;
               return v;
           }
+          + (CGFloat)ballOpacity {
+              NSString *s = [self _readPrefs][@"ballOpacity"];
+              CGFloat v = s.length > 0 ? [s floatValue] : 0.9;
+              if (v < 0.1) v = 0.1;
+              if (v > 1.0) v = 1.0;
+              return v;
+          }
+          + (CGFloat)windowScale {
+              NSString *s = [self _readPrefs][@"windowScale"];
+              CGFloat v = s.length > 0 ? [s floatValue] : 1.0;
+              if (v < 0.5) v = 0.5;
+              if (v > 1.0) v = 1.0;
+              return v;
+          }
           + (NSArray *)chatHistory { return [self _readPrefs][@"chatHistory"] ?: @[]; }
           + (void)saveChatHistory:(NSArray *)history {
               NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithContentsOfFile:prefsPath()] ?: [NSMutableDictionary new];
@@ -129,6 +145,7 @@ jobs:
 
           static UIWindow *ballWin = nil;
           static UIWindow *chatWin = nil;
+          static UIWindow *prevKeyWin = nil;
 
           @interface Ball : NSObject
           + (instancetype)shared;
@@ -145,36 +162,47 @@ jobs:
 
           - (UIWindowScene *)scene {
               for (UIScene *s in [UIApplication sharedApplication].connectedScenes) {
-                  if ([s isKindOfClass:[UIWindowScene class]] && s.activationState == UISceneActivationStateForegroundActive) {
-                      return (UIWindowScene *)s;
+                  if ([s isKindOfClass:[UIWindowScene class]] && s.activationState == UISceneActivationStateForegroundActive];
+) {
+                      return (UIWindowScene *)s             ;
                   }
               }
-              for (UIScene *s in [UIApplication sharedApplication].connectedScenes) {
-                  if ([s isKindOfClass:[UIWindowScene class]]) return (UIWindowScene *)s;
+              for ( ifUIScene *s in [UIApplication shared (!Application].connectedScenes) {
+                  ifs ([s isKindOfClass:[UIWindowScene) class]]) return (UIWindowScene *)s;
               }
               return nil;
           }
 
           - (void)tap {
               if (chatWin) return;
-              UIWindowScene *s = [self scene];
-              if (!s) return;
+              UIWindowScene *s = [self scene return;
+
+              prevKeyWin = [UIApplication sharedApplication].keyWindow;
+
               GPTChatViewController *vc = [GPTChatViewController new];
               UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:vc];
+
+              CGRect screen = [UIScreen mainScreen].bounds;
+              CGFloat scale = [GPTSettings windowScale];
+              CGFloat w = screen.size.width * scale;
+              CGFloat h = screen.size.height * scale;
+              CGFloat x = (screen.size.width - w) / 2.0;
+              CGFloat y = (screen.size.height - h) / 2.0;
+
               chatWin = [[UIWindow alloc] initWithWindowScene:s];
-              chatWin.frame = [UIScreen mainScreen].bounds;
-              chatWin.windowLevel = UIWindowLevelAlert + 100;
+              chatWin.frame = CGRectMake(x, y, w, h);
+              chatWin.windowLevel = UIWindowLevelAlert;
               chatWin.rootViewController = nav;
+              chatWin.backgroundColor = [UIColor systemBackgroundColor];
+              chatWin.layer.cornerRadius = 16;
+              chatWin.layer.masksToBounds = YES;
               [chatWin makeKeyAndVisible];
+
               vc.dismissBlock = ^{
                   chatWin.hidden = YES;
                   chatWin = nil;
-                  for (UIWindow *w in [UIApplication sharedApplication].windows) {
-                      if ([NSStringFromClass(w.class) containsString:@"System"] || w.windowLevel < UIWindowLevelAlert) {
-                          [w makeKeyWindow];
-                          break;
-                      }
-                  }
+                  [prevKeyWin makeKeyWindow];
+                  prevKeyWin = nil;
               };
           }
 
@@ -212,6 +240,7 @@ jobs:
               }
 
               CGFloat sz = [GPTSettings ballSize];
+              CGFloat alpha = [GPTSettings ballOpacity];
 
               ballWin = [[UIWindow alloc] initWithWindowScene:s];
               ballWin.frame = CGRectMake(0, 0, sz, sz);
@@ -223,7 +252,8 @@ jobs:
               b.frame = CGRectMake(0, 0, sz, sz);
               b.layer.cornerRadius = sz / 2.0;
               b.layer.masksToBounds = YES;
-              b.backgroundColor = [UIColor colorWithRed:0.1 green:0.45 blue:0.91 alpha:0.9];
+              b.backgroundColor = [UIColor colorWithRed:0.1 green:0.45 blue:0.91 alpha:1.0];
+              b.alpha = alpha;
 
               NSString *iconPath = [GPTSettings iconPath];
               UIImage *icon = iconPath ? [UIImage imageWithContentsOfFile:iconPath] : nil;
@@ -302,7 +332,7 @@ jobs:
               CGFloat H = self.view.bounds.size.height;
               CGFloat safeB = self.view.safeAreaInsets.bottom;
 
-              self.tableView = [[UITableView alloc] initWithFrame:CGRectMake(0, 0, W, H - 60) style:UITableViewStylePlain];
+              self.tableView = [[UITableView alloc] initWithFrame:CGRectMake(0, 0, W, H - 60 - safeB) style:UITableViewStylePlain];
               self.tableView.delegate = self;
               self.tableView.dataSource = self;
               self.tableView.rowHeight = UITableViewAutomaticDimension;
@@ -344,15 +374,18 @@ jobs:
 
           - (void)viewDidAppear:(BOOL)animated {
               [super viewDidAppear:animated];
-              [self.inputField becomeFirstResponder];
+              dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                  [self.inputField becomeFirstResponder];
+              });
           }
 
           - (void)kbShow:(NSNotification *)n {
               CGRect kb = [n.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];
               CGFloat h = kb.size.height;
+              CGFloat safeB = self.view.safeAreaInsets.bottom;
               [UIView animateWithDuration:0.25 animations:^{
-                  self.bar.transform = CGAffineTransformMakeTranslation(0, -h);
-                  self.tableView.contentInset = UIEdgeInsetsMake(0, 0, h, 0);
+                  self.bar.transform = CGAffineTransformMakeTranslation(0, -h + safeB);
+                  self.tableView.contentInset = UIEdgeInsetsMake(0, 0, h - safeB, 0);
                   self.tableView.scrollIndicatorInsets = self.tableView.contentInset;
               }];
           }
@@ -508,8 +541,11 @@ jobs:
           <dict><key>cell</key><string>PSEditTextCell</string><key>defaults</key><string>com.yourname.gptfloatball</string><key>key</key><string>temperature</string><key>label</key><string>温度</string><key>placeholder</key><string>0.7</string><key>get</key><string>readPreferenceValue:</string><key>set</key><string>setPreferenceValue:specifier:</string></dict>
           <dict><key>cell</key><string>PSEditTextCell</string><key>defaults</key><string>com.yourname.gptfloatball</string><key>key</key><string>maxTokens</string><key>label</key><string>最大 tokens</string><key>placeholder</key><string>1024</string><key>get</key><string>readPreferenceValue:</string><key>set</key><string>setPreferenceValue:specifier:</string></dict>
           <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>悬浮球外观</string></dict>
-          <dict><key>cell</key><string>PSEditTextCell</string><key>defaults</key><string>com.yourname.gptfloatball</string><key>key</key><string>ballSize</string><key>label</key><string>悬浮球大小</string><key>placeholder</key><string>60</string><key>get</key><string>readPreferenceValue:</string><key>set</key><string>setPreferenceValue:specifier:</string></dict>
+          <dict><key>cell</key><string>PSEditTextCell</string><key>defaults</key><string>com.yourname.gptfloatball</string><key>key</key><string>ballSize</string><key>label</key><string>大小 (40-150)</string><key>placeholder</key><string>60</string><key>get</key><string>readPreferenceValue:</string><key>set</key><string>setPreferenceValue:specifier:</string></dict>
+          <dict><key>cell</key><string>PSEditTextCell</string><key>defaults</key><string>com.yourname.gptfloatball</string><key>key</key><string>ballOpacity</string><key>label</key><string>透明度 (0.1-1.0)</string><key>placeholder</key><string>0.9</string><key>get</key><string>readPreferenceValue:</string><key>set</key><string>setPreferenceValue:specifier:</string></dict>
           <dict><key>cell</key><string>PSButtonCell</string><key>label</key><string>从相册选择悬浮球图标</string><key>action</key><string>pickImage</string></dict>
+          <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>聊天窗口</string><key>footerText</key><string>缩放：0.5 到 1.0，1.0 为全屏</string></dict>
+          <dict><key>cell</key><string>PSEditTextCell</string><key>defaults</key><string>com.yourname.gptfloatball</string><key>key</key><string>windowScale</string><key>label</key><string>窗口缩放 (0.5-1.0)</string><key>placeholder</key><string>1.0</string><key>get</key><string>readPreferenceValue:</string><key>set</key><string>setPreferenceValue:specifier:</string></dict>
           <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>数据管理</string></dict>
           <dict><key>cell</key><string>PSButtonCell</string><key>label</key><string>清除对话记录</string><key>action</key><string>clearHistory</string></dict>
           </array><key>title</key><string>GPT悬浮球</string></dict></plist>
@@ -544,15 +580,15 @@ jobs:
           - (void)apply {
               [self.view endEditing:YES];
               [[[NSUserDefaults alloc] initWithSuiteName:kDomain] synchronize];
-              CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.yourname.gptfloatball/settingsChanged"), NULL, NULL, YES);
-              UIAlertController *a = [UIAlertController alertControllerWithTitle:@"已保存" message:@"设置已生效，悬浮球已刷新" preferredStyle:UIAlertControllerStyleAlert];
-              [a addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+              CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CF{STR("com.yourname.gptfloatball/settings};
+Changed"), NULL, NULL, YES);
+              UIAlertController *a = [UIAlertController alert             ControllerWithTitle:@"已保存" message:@"设置已生效， NSString悬浮球已刷新" preferredStyle:UIAlert *ControllerStyleAlert];
+              [ak addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
               [self presentViewController:a animated:YES completion:nil];
           }
 
           - (id)readPreferenceValue:(PSSpecifier *)s {
-              NSDictionary *p = [NSDictionary dictionaryWithContentsOfFile:kPlist] ?: @{};
-              NSString *k = [s propertyForKey:@"key"]; if (!k) return nil;
+              NSDictionary *p = [NSDictionary dictionaryWithContentsOfFile:kPlist] ?: @ = [s propertyForKey:@"key"]; if (!k) return nil;
               id v = p[k]; if (!v) v = [s propertyForKey:@"default"];
               return v;
           }
@@ -580,8 +616,7 @@ jobs:
                   [img drawInRect:CGRectMake(0, 0, 200, 200)];
                   UIImage *scaled = UIGraphicsGetImageFromCurrentImageContext();
                   UIGraphicsEndImageContext();
-                  NSData *data = UIImagePNGRepresentation(scaled);
-                  [data writeToFile:kIcon atomically:YES];
+                  [UIImagePNGRepresentation(scaled) writeToFile:kIcon atomically:YES];
                   NSMutableDictionary *p = [NSMutableDictionary dictionaryWithContentsOfFile:kPlist] ?: [NSMutableDictionary new];
                   p[@"iconPath"] = kIcon;
                   [p writeToFile:kPlist atomically:YES];
@@ -655,7 +690,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/theos
-          key: theos-v13
+          key: theos-v14
 
       - name: Theos
         uses: huami1314/theos-action@main
