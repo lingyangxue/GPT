@@ -8,7 +8,6 @@ static UIView *dlg = nil;
 static UIView *titleBar = nil;
 static UILabel *titleLbl = nil;
 static UIButton *clearBtn = nil;
-static UIButton *closeBtn = nil;
 static UIView *inputBar = nil;
 static UIButton *polishBtn = nil;
 static UIButton *sendBtn = nil;
@@ -44,7 +43,6 @@ static CGFloat gKbHeight = 0;
     return [UIApplication sharedApplication].windows.firstObject;
 }
 
-// ============ 无动画重排 ============
 - (void)doLayout {
     if (!dlg) return;
     CGRect screen = [UIScreen mainScreen].bounds;
@@ -66,12 +64,11 @@ static CGFloat gKbHeight = 0;
 
     dlg.frame = CGRectMake(dialogX, dialogY, dialogW, dialogH);
 
-    CGFloat tbH = 50, cbH = 46, ibH = 60;
+    CGFloat tbH = 50, ibH = 60;
     titleBar.frame = CGRectMake(0, 0, dialogW, tbH);
     titleLbl.frame = CGRectMake(0, 0, dialogW, tbH);
     clearBtn.frame = CGRectMake(dialogW - 60, 5, 50, 40);
-    closeBtn.frame = CGRectMake(0, dialogH - cbH, dialogW, cbH);
-    inputBar.frame = CGRectMake(0, dialogH - cbH - ibH, dialogW, ibH);
+    inputBar.frame = CGRectMake(0, dialogH - ibH, dialogW, ibH);
 
     CGFloat btnW = 50;
     CGFloat tfW = dialogW - 2 * btnW - 24;
@@ -79,10 +76,9 @@ static CGFloat gKbHeight = 0;
     polishBtn.frame = CGRectMake(12 + tfW, 10, btnW, 40);
     sendBtn.frame = CGRectMake(12 + tfW + btnW, 10, btnW, 40);
 
-    chatTable.frame = CGRectMake(0, tbH, dialogW, dialogH - tbH - cbH - ibH);
+    chatTable.frame = CGRectMake(0, tbH, dialogW, dialogH - tbH - ibH);
 }
 
-// ============ 键盘通知（不做动画，避免死锁） ============
 - (void)kbShow:(NSNotification *)n {
     CGRect kb = [n.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];
     gKbHeight = kb.size.height;
@@ -94,11 +90,8 @@ static CGFloat gKbHeight = 0;
     [self doLayout];
 }
 
-// ============ 打开对话 ============
 - (void)tap {
     if (overlay) return;
-
-    // 先清理旧注册，防止重复
     [[NSNotificationCenter defaultCenter] removeObserver:self];
 
     UIWindow *host = [self hostWin];
@@ -107,14 +100,12 @@ static CGFloat gKbHeight = 0;
     if (!msgs) msgs = [NSMutableArray array];
     gKbHeight = 0;
 
-    // 背景（点击关闭）
     overlay = [UIButton buttonWithType:UIButtonTypeCustom];
     overlay.frame = screen;
     overlay.backgroundColor = [UIColor colorWithWhite:0 alpha:0.4];
     [overlay addTarget:self action:@selector(close) forControlEvents:UIControlEventTouchUpInside];
     [host addSubview:overlay];
 
-    // 对话框
     dlg = [[UIView alloc] init];
     dlg.backgroundColor = [UIColor systemBackgroundColor];
     dlg.layer.cornerRadius = 16;
@@ -135,14 +126,6 @@ static CGFloat gKbHeight = 0;
     [clearBtn setTitle:@"清空" forState:UIControlStateNormal];
     [clearBtn addTarget:self action:@selector(clearAll) forControlEvents:UIControlEventTouchUpInside];
     [titleBar addSubview:clearBtn];
-
-    closeBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    [closeBtn setTitle:@"关 闭" forState:UIControlStateNormal];
-    closeBtn.titleLabel.font = [UIFont boldSystemFontOfSize:17];
-    closeBtn.backgroundColor = [UIColor systemRedColor];
-    [closeBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    [closeBtn addTarget:self action:@selector(close) forControlEvents:UIControlEventTouchUpInside];
-    [dlg addSubview:closeBtn];
 
     inputBar = [[UIView alloc] init];
     inputBar.backgroundColor = [UIColor secondarySystemBackgroundColor];
@@ -170,16 +153,15 @@ static CGFloat gKbHeight = 0;
     chatTable.delegate = self;
     chatTable.dataSource = self;
     chatTable.rowHeight = UITableViewAutomaticDimension;
-    chatTable.estimatedRowHeight = 50;
+    chatTable.estimatedRowHeight = 44;
     chatTable.separatorStyle = UITableViewCellSeparatorStyleNone;
     [dlg addSubview:chatTable];
 
-    [self doLayout];  // 无键盘布局
+    [self doLayout];
 
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(kbShow:) name:UIKeyboardWillShowNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(kbHide:) name:UIKeyboardWillHideNotification object:nil];
 
-    // 延迟聚焦，避免和视图加载冲突
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         if (chatInput) [chatInput becomeFirstResponder];
     });
@@ -189,7 +171,7 @@ static CGFloat gKbHeight = 0;
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [chatInput resignFirstResponder];
     if (overlay) { [overlay removeFromSuperview]; overlay = nil; }
-    dlg = nil; titleBar = nil; titleLbl = nil; clearBtn = nil; closeBtn = nil;
+    dlg = nil; titleBar = nil; titleLbl = nil; clearBtn = nil;
     inputBar = nil; polishBtn = nil; sendBtn = nil; chatTable = nil; chatInput = nil;
     gKbHeight = 0;
 }
@@ -214,10 +196,10 @@ static CGFloat gKbHeight = 0;
 
 - (void)polish {
     NSString *t = [chatInput.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-    if (t.length == 0) return;
+    if (t.length == 0) { [self alert:@"请先在输入框输入要润色的文字"]; return; }
     chatInput.text = @"";
     NSArray *arr = @[
-        @{@"role": @"system", @"content": @"你是一个专业的中文润色助手。只返回润色后的文本。"},
+        @{@"role": @"system", @"content": @"你是一个专业的中文润色助手。请对用户提供的文本进行润色，使其更通顺、优美、专业。只输出润色后的文本，不要添加任何解释、对话或引号。"},
         @{@"role": @"user", @"content": t}
     ];
     [self callAPI:arr polish:YES];
@@ -250,9 +232,20 @@ static CGFloat gKbHeight = 0;
                 [self alert:e.length > 0 ? e : @"未收到有效回复"];
                 return;
             }
+
             if (polish) {
-                chatInput.text = reply;
-                [chatInput becomeFirstResponder];
+                UIWindow *host = [self hostWin];
+                UIViewController *vc = host.rootViewController;
+                UIAlertController *a = [UIAlertController alertControllerWithTitle:@"润色结果" message:reply preferredStyle:UIAlertControllerStyleAlert];
+                [a addAction:[UIAlertAction actionWithTitle:@"使用" style:UIAlertActionStyleDefault handler:^(UIAlertAction *_) {
+                    chatInput.text = reply;
+                    [chatInput becomeFirstResponder];
+                }]];
+                [a addAction:[UIAlertAction actionWithTitle:@"直接发送" style:UIAlertActionStyleDefault handler:^(UIAlertAction *_) {
+                    [self sendText:reply];
+                }]];
+                [a addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+                [vc presentViewController:a animated:YES completion:nil];
             } else {
                 [msgs addObject:@{@"role": @"assistant", @"content": reply}];
                 [chatTable reloadData];
@@ -260,6 +253,16 @@ static CGFloat gKbHeight = 0;
             }
         });
     }] resume];
+}
+
+- (void)sendText:(NSString *)text {
+    [msgs addObject:@{@"role": @"user", @"content": text}];
+    [chatTable reloadData];
+    [self scrollBottom];
+    NSMutableArray *arr = [NSMutableArray array];
+    [arr addObject:@{@"role": @"system", @"content": [GPTSettings systemPrompt]}];
+    for (NSDictionary *m in msgs) [arr addObject:m];
+    [self callAPI:arr polish:NO];
 }
 
 - (void)scrollBottom {
@@ -284,14 +287,33 @@ static CGFloat gKbHeight = 0;
     UITableViewCell *cell = [tv dequeueReusableCellWithIdentifier:cid];
     if (!cell) {
         cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:cid];
-        cell.textLabel.numberOfLines = 0;
-        cell.textLabel.font = [UIFont systemFontOfSize:15];
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
+
+        UITextView *textView = [[UITextView alloc] init];
+        textView.editable = NO;
+        textView.selectable = YES;
+        textView.scrollEnabled = NO;
+        textView.backgroundColor = [UIColor clearColor];
+        textView.font = [UIFont systemFontOfSize:15];
+        textView.textContainerInset = UIEdgeInsetsZero;
+        textView.textContainer.lineFragmentPadding = 0;
+        textView.dataDetectorTypes = UIDataDetectorTypeNone;
+        textView.tag = 9999;
+        textView.translatesAutoresizingMaskIntoConstraints = NO;
+        [cell.contentView addSubview:textView];
+
+        [NSLayoutConstraint activateConstraints:@[
+            [textView.topAnchor constraintEqualToAnchor:cell.contentView.topAnchor constant:8],
+            [textView.bottomAnchor constraintEqualToAnchor:cell.contentView.bottomAnchor constant:-8],
+            [textView.leadingAnchor constraintEqualToAnchor:cell.contentView.leadingAnchor constant:16],
+            [textView.trailingAnchor constraintEqualToAnchor:cell.contentView.trailingAnchor constant:-16],
+        ]];
     }
+    UITextView *tv2 = [cell.contentView viewWithTag:9999];
     NSDictionary *m = msgs[ip.row];
     BOOL u = [m[@"role"] isEqualToString:@"user"];
-    cell.textLabel.text = u ? [NSString stringWithFormat:@"你: %@", m[@"content"]] : [NSString stringWithFormat:@"GPT: %@", m[@"content"]];
-    cell.textLabel.textColor = u ? [UIColor systemBlueColor] : [UIColor labelColor];
+    tv2.text = u ? [NSString stringWithFormat:@"你: %@", m[@"content"]] : [NSString stringWithFormat:@"GPT: %@", m[@"content"]];
+    tv2.textColor = u ? [UIColor systemBlueColor] : [UIColor labelColor];
     return cell;
 }
 
@@ -350,7 +372,7 @@ static void makeBall(void) {
     } else {
         [b setTitle:@"AI" forState:UIControlStateNormal];
         [b setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-        b.titleLabel.font = [UIFont boldSystemFontOfSize:MAX(14, sz * 0.3)];
+        b.titleLabel.font = [UIFont boldSystemFontOfSize:MAX(10, sz * 0.3)];
     }
     [b addTarget:[ChatBall shared] action:@selector(tap) forControlEvents:UIControlEventTouchUpInside];
     UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:[ChatBall shared] action:@selector(pan:)];
