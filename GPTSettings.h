@@ -1,11 +1,14 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
+
 #define kPrefsDomain @"com.yourname.gptfloatball"
 static inline NSString *prefsPath(void) {
     return @"/var/mobile/Library/Preferences/com.yourname.gptfloatball.plist";
 }
+
 @interface GPTSettings : NSObject
 + (BOOL)isEnabled;
++ (BOOL)ballEnabled;
 + (NSString *)apiKey;
 + (NSString *)apiBaseURL;
 + (NSString *)modelName;
