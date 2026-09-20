@@ -9,5 +9,5 @@ GPTFloatBall_FRAMEWORKS = UIKit Foundation CoreGraphics
 GPTFloatBall_CFLAGS = -fobjc-arc -Wno-deprecated-declarations
 GPTFloatBall_LIBRARIES = substrate
 include $(THEOS_MAKE_PATH)/tweak.mk
-SUBPROJECTS += prefs app
+SUBPROJECTS += prefs
 include $(THEOS_MAKE_PATH)/aggregate.mk
