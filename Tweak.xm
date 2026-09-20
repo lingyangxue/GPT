@@ -17,6 +17,21 @@ static UITextField *chatInput = nil;
 static NSMutableArray *msgs = nil;
 static CGFloat gKbHeight = 0;
 
+// ============ 每次都获取当前活跃的 scene ============
+static UIWindowScene *activeScene(void) {
+    for (UIScene *s in [UIApplication sharedApplication].connectedScenes) {
+        if ([s isKindOfClass:[UIWindowScene class]] && s.activationState == UISceneActivationStateForegroundActive) {
+            return (UIWindowScene *)s;
+        }
+    }
+    for (UIScene *s in [UIApplication sharedApplication].connectedScenes) {
+        if ([s isKindOfClass:[UIWindowScene class]] && s.activationState != UISceneActivationStateUnattached) {
+            return (UIWindowScene *)s;
+        }
+    }
+    return nil;
+}
+
 @interface ChatBall : NSObject <UITableViewDelegate, UITableViewDataSource, UITextFieldDelegate>
 + (instancetype)shared;
 - (void)tap;
@@ -76,17 +91,26 @@ static CGFloat gKbHeight = 0;
 }
 - (void)tap {
     if (dlg) return;
-    [[NSNotificationCenter defaultCenter] removeObserver:self];
-    UIWindow *host = [self hostWin];
-    if (!host) return;
+    // 每次打开时用当前活跃 scene 创建对话
+    UIWindowScene *scene = activeScene();
+    if (!scene) return;
     if (!msgs) msgs = [NSMutableArray array];
     gKbHeight = 0;
 
-    dlg = [[UIView alloc] init];
+    UIWindow *host = [[UIWindow alloc] initWithWindowScene:scene];
+    host.frame = [UIScreen mainScreen].bounds;
+    host.windowLevel = UIWindowLevelNormal + 1;
+    host.backgroundColor = [UIColor clearColor];
+    host.rootViewController = [UIViewController new];
+    host.rootViewController.view.frame = host.bounds;
+    host.rootViewController.view.backgroundColor = [UIColor clearColor];
+    [host makeKeyAndVisible];
+
+    dlg = [[UIView alloc] initWithFrame:CGRectMake(0, [UIScreen mainScreen].bounds.size.height - 90, [UIScreen mainScreen].bounds.size.width, 90)];
     dlg.backgroundColor = [UIColor systemBackgroundColor];
     dlg.layer.cornerRadius = 12;
     dlg.layer.masksToBounds = YES;
-    [host addSubview:dlg];
+    [host.rootViewController.view addSubview:dlg];
 
     titleBar = [[UIView alloc] init];
     titleBar.backgroundColor = [UIColor secondarySystemBackgroundColor];
@@ -152,10 +176,13 @@ static CGFloat gKbHeight = 0;
 - (void)close {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [chatInput resignFirstResponder];
+    // 找到 dlg 所在的窗口并销毁
+    UIWindow *host = dlg.window;
     if (dlg) { [dlg removeFromSuperview]; dlg = nil; }
     titleBar = nil; titleLbl = nil; clearBtn = nil; closeBtn = nil;
     inputBar = nil; polishBtn = nil; sendBtn = nil; chatTable = nil; chatInput = nil;
     gKbHeight = 0;
+    if (host) { host.hidden = YES; host = nil; }
 }
 - (void)clearAll { [msgs removeAllObjects]; [chatTable reloadData]; }
 - (void)send {
@@ -322,27 +349,12 @@ static CGFloat gKbHeight = 0;
 }
 @end
 
-static UIWindowScene *activeScene(void) {
-    for (UIScene *s in [UIApplication sharedApplication].connectedScenes) {
-        if ([s isKindOfClass:[UIWindowScene class]] && s.activationState == UISceneActivationStateForegroundActive) {
-            return (UIWindowScene *)s;
-        }
-    }
-    return nil;
-}
-
+// ============ 悬浮球 ============
 static void makeBall(void) {
     if (ballWin) return;
     UIWindowScene *s = activeScene();
-    if (!s) {
-        for (UIScene *x in [UIApplication sharedApplication].connectedScenes) {
-            if ([x isKindOfClass:[UIWindowScene class]]) { s = (UIWindowScene *)x; break; }
-        }
-    }
-    if (!s) {
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1500000000), dispatch_get_main_queue(), ^{ makeBall(); });
-        return;
-    }
+    if (!s) return;  // scene 还没就绪，等下一次 watchdog 检查
+
     CGFloat sz = [GPTSettings ballSize];
     CGFloat alpha = [GPTSettings ballOpacity];
     ballWin = [[UIWindow alloc] initWithWindowScene:s];
@@ -350,6 +362,8 @@ static void makeBall(void) {
     ballWin.windowLevel = UIWindowLevelStatusBar + 100;
     ballWin.backgroundColor = [UIColor clearColor];
     ballWin.rootViewController = [UIViewController new];
+    ballWin.rootViewController.view.frame = ballWin.bounds;
+
     UIButton *b = [UIButton buttonWithType:UIButtonTypeCustom];
     b.frame = CGRectMake(0, 0, sz, sz);
     b.layer.cornerRadius = sz / 2.0;
@@ -370,6 +384,7 @@ static void makeBall(void) {
     UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:[ChatBall shared] action:@selector(pan:)];
     [b addGestureRecognizer:pan];
     [ballWin.rootViewController.view addSubview:b];
+
     NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
     CGFloat x = [d floatForKey:@"ballX"];
     CGFloat y = [d floatForKey:@"ballY"];
@@ -382,28 +397,42 @@ static void makeBall(void) {
 }
 
 static void removeBall(void) {
-    if (ballWin) { ballWin.hidden = YES; ballWin = nil; }
+    if (ballWin) {
+        ballWin.hidden = YES;
+        ballWin = nil;
+    }
 }
 
+// ============ 通知 ============
 static void onSettingsChanged(CFNotificationCenterRef c, void *o, CFStringRef n, const void *obj, CFDictionaryRef u) {
     dispatch_async(dispatch_get_main_queue(), ^{ removeBall(); makeBall(); });
 }
 
+static void onActive(NSNotification *n) {
+    dispatch_async(dispatch_get_main_queue(), ^{ removeBall(); makeBall(); });
+}
+
 static void watchdogTick(void) {
-    UIWindowScene *a = activeScene();
-    if (!a) return;
-    if (ballWin && ballWin.windowScene == a && !ballWin.hidden) return;
+    // 每次都重新判断 scene，不对就重建
+    UIWindowScene *s = activeScene();
+    if (!s) return;
+    if (ballWin && ballWin.windowScene == s && !ballWin.hidden) return;
     removeBall();
     makeBall();
 }
 
 %ctor {
     %init;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+    [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *n) {
+        onActive(n);
+    }];
+
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         makeBall();
-        [NSTimer scheduledTimerWithTimeInterval:1.5 repeats:YES block:^(NSTimer *t) {
+        [NSTimer scheduledTimerWithTimeInterval:1.0 repeats:YES block:^(NSTimer *t) {
             watchdogTick();
         }];
     });
+
     CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, onSettingsChanged, CFSTR("com.yourname.gptfloatball/settingsChanged"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
 }
