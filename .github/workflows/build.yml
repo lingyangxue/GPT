@@ -22,24 +22,18 @@ jobs:
           # ---- 根 Makefile ----
           cat > Makefile << 'MAKEEOF'
           export THEOS = $(CURDIR)/theos
-
           ARCHS = arm64 arm64e
           TARGET = iphone:clang:latest:15.0
           INSTALL_TARGET_PROCESSES = SpringBoard
-
           include $(THEOS)/makefiles/common.mk
-
           TWEAK_NAME = GPTFloatBall
           GPTFloatBall_FILES = Tweak.xm GPTChatViewController.m GPTSettings.m
           GPTFloatBall_FRAMEWORKS = UIKit Foundation CoreGraphics
           GPTFloatBall_CFLAGS = -fobjc-arc -Wno-deprecated-declarations
           GPTFloatBall_LIBRARIES = substrate
-
           include $(THEOS_MAKE_PATH)/tweak.mk
-
           SUBPROJECTS += prefs
           include $(THEOS_MAKE_PATH)/aggregate.mk
-
           after-install::
           	install.exec "killall -9 SpringBoard"
           MAKEEOF
@@ -48,16 +42,13 @@ jobs:
           cat > GPTChatViewController.m << 'CHATEOF'
           #import "GPTChatViewController.h"
           #import "GPTSettings.h"
-
           @interface GPTChatViewController () <UITableViewDelegate, UITableViewDataSource, UITextFieldDelegate>
           @property (nonatomic, strong) UITableView *tableView;
           @property (nonatomic, strong) NSMutableArray *messages;
           @property (nonatomic, strong) UITextField *inputField;
           @property (nonatomic, strong) UIActivityIndicatorView *spinner;
           @end
-
           @implementation GPTChatViewController
-
           - (void)viewDidLoad {
               [super viewDidLoad];
               self.title = @"GPT 助手";
@@ -65,39 +56,22 @@ jobs:
               self.navigationItem.leftBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemClose target:self action:@selector(close)];
               self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"清空" style:UIBarButtonItemStylePlain target:self action:@selector(clearAll)];
               self.messages = [NSMutableArray arrayWithArray:[GPTSettings chatHistory]];
-
               self.tableView = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStylePlain];
-              self.tableView.delegate = self;
-              self.tableView.dataSource = self;
-              self.tableView.rowHeight = UITableViewAutomaticDimension;
-              self.tableView.estimatedRowHeight = 60;
-              self.tableView.translatesAutoresizingMaskIntoConstraints = NO;
-              [self.view addSubview:self.tableView];
-
-              UIView *inputBar = [UIView new];
-              inputBar.backgroundColor = [UIColor secondarySystemBackgroundColor];
-              inputBar.translatesAutoresizingMaskIntoConstraints = NO;
-              [self.view addSubview:inputBar];
-
-              self.inputField = [UITextField new];
-              self.inputField.placeholder = @"输入消息...";
-              self.inputField.borderStyle = UITextBorderStyleRoundedRect;
-              self.inputField.delegate = self;
-              self.inputField.returnKeyType = UIReturnKeySend;
-              self.inputField.translatesAutoresizingMaskIntoConstraints = NO;
+              self.tableView.delegate = self; self.tableView.dataSource = self; self.tableView.rowHeight = UITableViewAutomaticDimension; self.tableView.estimatedRowHeight = 60;
+              self.tableView.translatesAutoresizingMaskIntoConstraints = NO; [self.view addSubview:self.tableView];
+              UIView *inputBar = [UIView new]; inputBar.backgroundColor = [UIColor secondarySystemBackgroundColor];
+              inputBar.translatesAutoresizingMaskIntoConstraints = NO; [self.view addSubview:inputBar];
+              self.inputField = [UITextField new]; self.inputField.placeholder = @"输入消息...";
+              self.inputField.borderStyle = UITextBorderStyleRoundedRect; self.inputField.delegate = self;
+              self.inputField.returnKeyType = UIReturnKeySend; self.inputField.translatesAutoresizingMaskIntoConstraints = NO;
               [inputBar addSubview:self.inputField];
-
               UIButton *sendBtn = [UIButton buttonWithType:UIButtonTypeSystem];
               [sendBtn setTitle:@"发送" forState:UIControlStateNormal];
               [sendBtn addTarget:self action:@selector(sendMessage) forControlEvents:UIControlEventTouchUpInside];
-              sendBtn.translatesAutoresizingMaskIntoConstraints = NO;
-              [inputBar addSubview:sendBtn];
-
+              sendBtn.translatesAutoresizingMaskIntoConstraints = NO; [inputBar addSubview:sendBtn];
               self.spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
-              self.spinner.hidesWhenStopped = YES;
-              self.spinner.translatesAutoresizingMaskIntoConstraints = NO;
+              self.spinner.hidesWhenStopped = YES; self.spinner.translatesAutoresizingMaskIntoConstraints = NO;
               [inputBar addSubview:self.spinner];
-
               [NSLayoutConstraint activateConstraints:@[
                   [self.tableView.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor],
                   [self.tableView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
@@ -118,7 +92,6 @@ jobs:
               ]];
               [self scrollToBottom];
           }
-
           - (void)close { if (self.dismissBlock) self.dismissBlock(); }
           - (void)clearAll { [self.messages removeAllObjects]; [GPTSettings clearHistory]; [self.tableView reloadData]; }
           - (void)scrollToBottom {
@@ -126,7 +99,6 @@ jobs:
               NSIndexPath *last = [NSIndexPath indexPathForRow:self.messages.count - 1 inSection:0];
               [self.tableView scrollToRowAtIndexPath:last atScrollPosition:UITableViewScrollPositionBottom animated:YES];
           }
-
           - (void)sendMessage {
               NSString *text = [self.inputField.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
               if (text.length == 0) return;
@@ -134,25 +106,15 @@ jobs:
               if (apiKey.length == 0) {
                   UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"未配置" message:@"请先在设置中填写 API Key" preferredStyle:UIAlertControllerStyleAlert];
                   [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil]];
-                  [self presentViewController:alert animated:YES completion:nil];
-                  return;
+                  [self presentViewController:alert animated:YES completion:nil]; return;
               }
               self.inputField.text = @"";
               [self.messages addObject:@{@"role": @"user", @"content": text}];
-              [self.tableView reloadData];
-              [self scrollToBottom];
-              [self.spinner startAnimating];
-
+              [self.tableView reloadData]; [self scrollToBottom]; [self.spinner startAnimating];
               NSMutableArray *apiMessages = [NSMutableArray array];
               [apiMessages addObject:@{@"role": @"system", @"content": [GPTSettings systemPrompt]}];
               for (NSDictionary *msg in self.messages) { [apiMessages addObject:msg]; }
-
-              NSDictionary *body = @{
-                  @"model": [GPTSettings modelName],
-                  @"messages": apiMessages,
-                  @"temperature": @([GPTSettings temperature]),
-                  @"max_tokens": @([GPTSettings maxTokens])
-              };
+              NSDictionary *body = @{ @"model": [GPTSettings modelName], @"messages": apiMessages, @"temperature": @([GPTSettings temperature]), @"max_tokens": @([GPTSettings maxTokens]) };
               NSURL *url = [NSURL URLWithString:[GPTSettings apiBaseURL]];
               NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
               request.HTTPMethod = @"POST";
@@ -160,15 +122,12 @@ jobs:
               [request setValue:[NSString stringWithFormat:@"Bearer %@", apiKey] forHTTPHeaderField:@"Authorization"];
               request.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
               request.timeoutInterval = 60;
-
               NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
                   dispatch_async(dispatch_get_main_queue(), ^{
                       [self.spinner stopAnimating];
                       if (error) {
                           [self.messages addObject:@{@"role": @"assistant", @"content": [NSString stringWithFormat:@"请求失败: %@", error.localizedDescription]}];
-                          [self.tableView reloadData];
-                          [self scrollToBottom];
-                          return;
+                          [self.tableView reloadData]; [self scrollToBottom]; return;
                       }
                       NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
                       NSString *reply = nil;
@@ -180,13 +139,10 @@ jobs:
                       } else {
                           [self.messages addObject:@{@"role": @"assistant", @"content": @"未收到有效回复"}];
                       }
-                      [self.tableView reloadData];
-                      [self scrollToBottom];
+                      [self.tableView reloadData]; [self scrollToBottom];
                   });
-              }];
-              [task resume];
+              }]; [task resume];
           }
-
           - (BOOL)textFieldShouldReturn:(UITextField *)textField { [self sendMessage]; return YES; }
           - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { return self.messages.count; }
           - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -194,8 +150,7 @@ jobs:
               UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:cellID];
               if (!cell) {
                   cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:cellID];
-                  cell.textLabel.numberOfLines = 0;
-                  cell.textLabel.font = [UIFont systemFontOfSize:15];
+                  cell.textLabel.numberOfLines = 0; cell.textLabel.font = [UIFont systemFontOfSize:15];
                   cell.selectionStyle = UITableViewCellSelectionStyleNone;
               }
               NSDictionary *msg = self.messages[indexPath.row];
@@ -212,16 +167,13 @@ jobs:
 
           cat > prefs/Makefile << 'PMEOF'
           include $(THEOS)/makefiles/common.mk
-
           BUNDLE_NAME = GPTFloatBallPrefs
           GPTFloatBallPrefs_FILES = GPTFloatBallPrefsRootListController.m
           GPTFloatBallPrefs_INSTALL_PATH = /Library/PreferenceBundles
           GPTFloatBallPrefs_FRAMEWORKS = UIKit
           GPTFloatBallPrefs_CFLAGS = -fobjc-arc
           GPTFloatBallPrefs_LDFLAGS = -Wl,-undefined,dynamic_lookup
-
           include $(THEOS_MAKE_PATH)/bundle.mk
-
           internal-stage::
           	$(ECHO_NOTHING)mkdir -p $(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences$(ECHO_END)
           	$(ECHO_NOTHING)cp entry.plist $(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences/GPTFloatBall.plist$(ECHO_END)
@@ -285,11 +237,23 @@ jobs:
                       <key>placeholder</key><string>https://api.deepseek.com/v1/chat/completions</string>
                   </dict>
                   <dict>
-                      <key>cell</key><string>PSEditTextCell</string>
-                      <key>defaults</key><string>com.yourname.gptfloatball</string>
-                      <key>key</key><string>modelName</string>
+                      <key>cell</key><string>PSLinkCell</string>
+                      <key>detail</key><string>PSListItemsController</string>
                       <key>label</key><string>模型</string>
-                      <key>placeholder</key><string>deepseek-chat</string>
+                      <key>key</key><string>modelName</string>
+                      <key>defaults</key><string>com.yourname.gptfloatball</string>
+                      <key>validValues</key><array>
+                          <string>deepseek-chat</string>
+                          <string>deepseek-reasoner</string>
+                          <string>gpt-4o-mini</string>
+                          <string>gpt-4o</string>
+                      </array>
+                      <key>validTitles</key><array>
+                          <string>DeepSeek Chat</string>
+                          <string>DeepSeek Reasoner</string>
+                          <string>GPT-4o mini</string>
+                          <string>GPT-4o</string>
+                      </array>
                   </dict>
                   <dict>
                       <key>cell</key><string>PSEditTextCell</string>
@@ -312,13 +276,11 @@ jobs:
                       <key>label</key><string>最大 tokens</string>
                       <key>placeholder</key><string>1024</string>
                   </dict>
-                  <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>图标</string></dict>
+                  <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>图标设置</string></dict>
                   <dict>
-                      <key>cell</key><string>PSEditTextCell</string>
-                      <key>defaults</key><string>com.yourname.gptfloatball</string>
-                      <key>key</key><string>iconPath</string>
-                      <key>label</key><string>图标路径</string>
-                      <key>placeholder</key><string>/var/mobile/ball.png（留空用默认）</string>
+                      <key>cell</key><string>PSButtonCell</string>
+                      <key>label</key><string>从相册选择悬浮球图标</string>
+                      <key>action</key><string>pickImage</string>
                   </dict>
                   <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>数据管理</string></dict>
                   <dict>
@@ -336,10 +298,12 @@ jobs:
           #import <Preferences/PSListController.h>
           #import <Preferences/PSSpecifier.h>
           #import <spawn.h>
+          #import <UIKit/UIKit.h>
 
           #define kPrefsPlist @"/var/mobile/Library/Preferences/com.yourname.gptfloatball.plist"
+          #define kIconPath @"/var/mobile/Library/Preferences/GPTFloatBall_icon.png"
 
-          @interface GPTFloatBallPrefsRootListController : PSListController
+          @interface GPTFloatBallPrefsRootListController : PSListController <UIImagePickerControllerDelegate, UINavigationControllerDelegate>
           @end
 
           @implementation GPTFloatBallPrefsRootListController
@@ -363,6 +327,46 @@ jobs:
                   CFSTR("com.yourname.gptfloatball/settingsChanged"),
                   NULL, NULL, YES);
               [self respring];
+          }
+
+          // 打开相册选图
+          - (void)pickImage {
+              UIImagePickerController *picker = [[UIImagePickerController alloc] init];
+              picker.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
+              picker.delegate = self;
+              picker.allowsEditing = YES; // 允许裁剪
+              [self presentViewController:picker animated:YES completion:nil];
+          }
+
+          - (void)imagePickerController:(UIImagePickerController *)picker didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *)info {
+              UIImage *image = info[UIImagePickerControllerEditedImage] ?: info[UIImagePickerControllerOriginalImage];
+              [picker dismissViewControllerAnimated:YES completion:^{
+                  if (!image) return;
+                  // 缩放到 128x128
+                  UIGraphicsBeginImageContextWithOptions(CGSizeMake(128, 128), NO, 1.0);
+                  [image drawInRect:CGRectMake(0, 0, 128, 128)];
+                  UIImage *scaled = UIGraphicsGetImageFromCurrentImageContext();
+                  UIGraphicsEndImageContext();
+                  
+                  NSData *data = UIImagePNGRepresentation(scaled);
+                  [data writeToFile:kIconPath atomically:YES];
+                  
+                  // 更新配置
+                  NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithContentsOfFile:kPrefsPlist] ?: [NSMutableDictionary new];
+                  dict[@"iconPath"] = kIconPath;
+                  [dict writeToFile:kPrefsPlist atomically:YES];
+                  
+                  // 通知 Tweak 刷新悬浮球
+                  CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.yourname.gptfloatball/settingsChanged"), NULL, NULL, YES);
+                  
+                  UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"成功" message:@"图标已更新，悬浮球会自动刷新" preferredStyle:UIAlertControllerStyleAlert];
+                  [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+                  [self presentViewController:alert animated:YES completion:nil];
+              }];
+          }
+
+          - (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker {
+              [picker dismissViewControllerAnimated:YES completion:nil];
           }
 
           - (void)clearHistory {
