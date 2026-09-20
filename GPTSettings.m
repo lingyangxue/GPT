@@ -2,110 +2,86 @@
 
 @implementation GPTSettings
 
-+ (NSUserDefaults *)ud {
-    return [[NSUserDefaults alloc] initWithSuiteName:kPrefsDomain];
++ (NSDictionary *)_readPrefs {
+    NSDictionary *dict = [NSDictionary dictionaryWithContentsOfFile:prefsPath()];
+    return dict ?: @{};
 }
 
 + (void)setValue:(id)value forKey:(NSString *)key {
     if (!key) return;
-    NSUserDefaults *ud = [self ud];
-    if (value) [ud setObject:value forKey:key];
-    else [ud removeObjectForKey:key];
-    [ud synchronize];
+    NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithContentsOfFile:prefsPath()] ?: [NSMutableDictionary new];
+    if (value) dict[key] = value;
+    else [dict removeObjectForKey:key];
+    [dict writeToFile:prefsPath() atomically:YES];
     CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.yourname.gptfloatball/settingsChanged"), NULL, NULL, YES);
 }
 
-+ (BOOL)isEnabled {
-    NSUserDefaults *ud = [self ud];
-    if ([ud objectForKey:@"enabled"] == nil) return YES;
-    return [ud boolForKey:@"enabled"];
++ (BOOL)_boolForKey:(NSString *)k def:(BOOL)d {
+    id v = [self _readPrefs][k];
+    if (!v) return d;
+    if ([v isKindOfClass:[NSNumber class]]) return [v boolValue];
+    if ([v isKindOfClass:[NSString class]]) return [v boolValue];
+    return d;
 }
 
-+ (BOOL)ballEnabled {
-    NSUserDefaults *ud = [self ud];
-    if ([ud objectForKey:@"ballEnabled"] == nil) return YES;
-    return [ud boolForKey:@"ballEnabled"];
-}
++ (BOOL)isEnabled { return [self _boolForKey:@"enabled" def:YES]; }
++ (BOOL)ballEnabled { return [self _boolForKey:@"ballEnabled" def:YES]; }
 
-+ (NSString *)apiKey {
-    NSString *v = [[self ud] stringForKey:@"apiKey"];
-    return v ?: @"";
-}
-
++ (NSString *)apiKey { return [self _readPrefs][@"apiKey"] ?: @""; }
 + (NSString *)apiBaseURL {
-    NSString *url = [[self ud] stringForKey:@"apiBaseURL"];
+    NSString *url = [self _readPrefs][@"apiBaseURL"];
     return url.length > 0 ? url : @"https://api.deepseek.com/v1/chat/completions";
 }
-
 + (NSString *)modelName {
-    NSString *m = [[self ud] stringForKey:@"modelName"];
+    NSString *m = [self _readPrefs][@"modelName"];
     return m.length > 0 ? m : @"deepseek-chat";
 }
-
 + (NSString *)iconPath {
-    NSString *p = [[self ud] stringForKey:@"iconPath"];
+    NSString *p = [self _readPrefs][@"iconPath"];
     return p.length > 0 ? p : nil;
 }
-
 + (NSString *)systemPrompt {
-    NSString *s = [[self ud] stringForKey:@"systemPrompt"];
+    NSString *s = [self _readPrefs][@"systemPrompt"];
     return s.length > 0 ? s : @"你是一个简洁的AI助手，用中文回答。";
 }
-
 + (double)temperature {
-    NSUserDefaults *ud = [self ud];
-    if ([ud objectForKey:@"temperature"] == nil) return 0.7;
-    return [[ud stringForKey:@"temperature"] doubleValue];
+    NSString *t = [self _readPrefs][@"temperature"];
+    return t.length > 0 ? [t doubleValue] : 0.7;
 }
-
 + (NSInteger)maxTokens {
-    NSUserDefaults *ud = [self ud];
-    if ([ud objectForKey:@"maxTokens"] == nil) return 1024;
-    return [[ud stringForKey:@"maxTokens"] integerValue];
+    NSString *t = [self _readPrefs][@"maxTokens"];
+    return t.length > 0 ? [t integerValue] : 1024;
 }
-
 + (CGFloat)ballSize {
-    NSUserDefaults *ud = [self ud];
-    NSString *s = [ud stringForKey:@"ballSize"];
+    NSString *s = [self _readPrefs][@"ballSize"];
     CGFloat v = s.length > 0 ? [s floatValue] : 36;
     if (v < 20) v = 20;
     if (v > 150) v = 150;
     return v;
 }
-
 + (CGFloat)ballOpacity {
-    NSUserDefaults *ud = [self ud];
-    NSString *s = [ud stringForKey:@"ballOpacity"];
+    NSString *s = [self _readPrefs][@"ballOpacity"];
     CGFloat v = s.length > 0 ? [s floatValue] : 0.9;
     if (v < 0.1) v = 0.1;
     if (v > 1.0) v = 1.0;
     return v;
 }
-
 + (CGFloat)windowScale {
-    NSUserDefaults *ud = [self ud];
-    NSString *s = [ud stringForKey:@"windowScale"];
+    NSString *s = [self _readPrefs][@"windowScale"];
     CGFloat v = s.length > 0 ? [s floatValue] : 1.0;
     if (v < 0.5) v = 0.5;
     if (v > 1.0) v = 1.0;
     return v;
 }
-
-+ (NSArray *)chatHistory {
-    NSArray *a = [[self ud] arrayForKey:@"chatHistory"];
-    return a ?: @[];
-}
-
++ (NSArray *)chatHistory { return [self _readPrefs][@"chatHistory"] ?: @[]; }
 + (void)saveChatHistory:(NSArray *)history {
-    NSUserDefaults *ud = [self ud];
-    [ud setObject:history forKey:@"chatHistory"];
-    [ud synchronize];
+    NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithContentsOfFile:prefsPath()] ?: [NSMutableDictionary new];
+    dict[@"chatHistory"] = history;
+    [dict writeToFile:prefsPath() atomically:YES];
 }
-
 + (void)clearHistory {
-    NSUserDefaults *ud = [self ud];
-    [ud removeObjectForKey:@"chatHistory"];
-    [ud synchronize];
+    NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithContentsOfFile:prefsPath()] ?: [NSMutableDictionary new];
+    [dict removeObjectForKey:@"chatHistory"];
+    [dict writeToFile:prefsPath() atomically:YES];
 }
-
 @end
