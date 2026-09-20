@@ -1,12 +1,9 @@
 #import "GPTSettings.h"
-
 @implementation GPTSettings
-
 + (NSDictionary *)_readPrefs {
     NSDictionary *dict = [NSDictionary dictionaryWithContentsOfFile:prefsPath()];
     return dict ?: @{};
 }
-
 + (void)setValue:(id)value forKey:(NSString *)key {
     if (!key) return;
     NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithContentsOfFile:prefsPath()] ?: [NSMutableDictionary new];
@@ -14,11 +11,7 @@
     [dict writeToFile:prefsPath() atomically:YES];
     CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.yourname.gptfloatball/settingsChanged"), NULL, NULL, YES);
 }
-
-+ (BOOL)isEnabled {
-    NSNumber *v = [self _readPrefs][@"enabled"];
-    return v ? [v boolValue] : YES;
-}
++ (BOOL)isEnabled { NSNumber *v = [self _readPrefs][@"enabled"]; return v ? [v boolValue] : YES; }
 + (NSString *)apiKey { return [self _readPrefs][@"apiKey"] ?: @""; }
 + (NSString *)apiBaseURL {
     NSString *url = [self _readPrefs][@"apiBaseURL"];
@@ -44,6 +37,27 @@
     NSString *t = [self _readPrefs][@"maxTokens"];
     return t.length > 0 ? [t integerValue] : 1024;
 }
++ (CGFloat)ballSize {
+    NSString *s = [self _readPrefs][@"ballSize"];
+    CGFloat v = s.length > 0 ? [s floatValue] : 60;
+    if (v < 40) v = 40;
+    if (v > 150) v = 150;
+    return v;
+}
++ (CGFloat)ballOpacity {
+    NSString *s = [self _readPrefs][@"ballOpacity"];
+    CGFloat v = s.length > 0 ? [s floatValue] : 0.9;
+    if (v < 0.1) v = 0.1;
+    if (v > 1.0) v = 1.0;
+    return v;
+}
++ (CGFloat)windowScale {
+    NSString *s = [self _readPrefs][@"windowScale"];
+    CGFloat v = s.length > 0 ? [s floatValue] : 1.0;
+    if (v < 0.5) v = 0.5;
+    if (v > 1.0) v = 1.0;
+    return v;
+}
 + (NSArray *)chatHistory { return [self _readPrefs][@"chatHistory"] ?: @[]; }
 + (void)saveChatHistory:(NSArray *)history {
     NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithContentsOfFile:prefsPath()] ?: [NSMutableDictionary new];
@@ -55,5 +69,4 @@
     [dict removeObjectForKey:@"chatHistory"];
     [dict writeToFile:prefsPath() atomically:YES];
 }
-
 @end
