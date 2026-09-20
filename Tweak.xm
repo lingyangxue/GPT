@@ -62,19 +62,33 @@ static UIWindow *prevKeyWin = nil;
 }
 
 - (void)pan:(UIPanGestureRecognizer *)g {
-    UIView *v = g.view; UIWindow *w = v.window;
+    UIView *v = g.view;
+    UIWindow *w = v.window;
     CGPoint t = [g translationInView:w];
     w.center = CGPointMake(w.center.x + t.x, w.center.y + t.y);
     [g setTranslation:CGPointZero inView:w];
     if (g.state == UIGestureRecognizerStateEnded) {
         CGSize sc = [UIScreen mainScreen].bounds.size;
-        CGFloat sz = [GPTSettings< ballSize];
-        CGFloat x = w.framedict.origin.x, y = w.frame><.originkey.y;
-        x = (x < sc.width>/2) ? 10 : (cellsc.width - sz - </10);
-        y = MAX(60, MIN(y, sc.height - sz - 60));
-        [UIView animateWithDuration:0.25 animations:^{ w.frame = CGRectMake(x, y, sz, sz); }];
+        CGFloat sz = [GPTSettings ballSize];
+        CGFloat x = w.frame.origin.x;
+        CGFloat y = w.frame.origin.y;
+        if (x < sc.width / 2) {
+            x = 10;
+        } else {
+            x = sc.width - sz - 10;
+        }
+        if (y < 60) {
+            y = 60;
+        } else if (y > sc.height - sz - 60) {
+            y = sc.height - sz - 60;
+        }
+        [UIView animateWithDuration:0.25 animations:^{
+            w.frame = CGRectMake(x, y, sz, sz);
+        }];
         NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
-        [d setFloat:x forKey:@"ballX"]; [d setFloat:y forKey:@"ballY"]; [d synchronize];
+        [d setFloat:x forKey:@"ballX"];
+        [d setFloat:y forKey:@"ballY"];
+        [d synchronize];
     }
 }
 @end
@@ -83,9 +97,17 @@ static void makeBall(void) {
     if (ballWin) return;
     UIWindowScene *s = nil;
     for (UIScene *x in [UIApplication sharedApplication].connectedScenes) {
-        if ([x isKindOfClass:[UIWindowScene class]]) { s = (UIWindowScene *)x; break; }
+        if ([x isKindOfClass:[UIWindowScene class]]) {
+            s = (UIWindowScene *)x;
+            break;
+        }
     }
-    if (!s) { dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1500000000), dispatch_get_main_queue(), ^{ makeBall(); }); return; }
+    if (!s) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1500000000), dispatch_get_main_queue(), ^{
+            makeBall();
+        });
+        return;
+    }
     CGFloat sz = [GPTSettings ballSize];
     CGFloat alpha = [GPTSettings ballOpacity];
     ballWin = [[UIWindow alloc] initWithWindowScene:s];
@@ -114,23 +136,35 @@ static void makeBall(void) {
     [b addGestureRecognizer:pan];
     [ballWin.rootViewController.view addSubview:b];
     NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
-    CGFloat x = [d floatForKey:@"ballX"], y = [d floatForKey:@"ballY"];
+    CGFloat x = [d floatForKey:@"ballX"];
+    CGFloat y = [d floatForKey:@"ballY"];
     if (x == 0 && y == 0) {
         CGSize sc = [UIScreen mainScreen].bounds.size;
-        x = sc.width - sz - 20; y = sc.height / 2;
+        x = sc.width - sz - 20;
+        y = sc.height / 2;
     }
     ballWin.frame = CGRectMake(x, y, sz, sz);
     ballWin.hidden = NO;
 }
 
-static void removeBall(void) { if (ballWin) { ballWin.hidden = YES; ballWin = nil; } }
+static void removeBall(void) {
+    if (ballWin) {
+        ballWin.hidden = YES;
+        ballWin = nil;
+    }
+}
 
 static void onSettingsChanged(CFNotificationCenterRef c, void *o, CFStringRef n, const void *obj, CFDictionaryRef u) {
-    dispatch_async(dispatch_get_main_queue(), ^{ removeBall(); makeBall(); });
+    dispatch_async(dispatch_get_main_queue(), ^{
+        removeBall();
+        makeBall();
+    });
 }
 
 %ctor {
     %init;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ makeBall(); });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        makeBall();
+    });
     CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, onSettingsChanged, CFSTR("com.yourname.gptfloatball/settingsChanged"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
 }
