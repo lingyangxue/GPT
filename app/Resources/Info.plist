@@ -10,6 +10,16 @@
 <key>CFBundleVersion</key><string>1.0.0</string>
 <key>MinimumOSVersion</key><string>15.0</string>
 <key>UIDeviceFamily</key><array><integer>1</integer></array>
-<key>UILaunchStoryboardName</key><string></string>
 <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string></array>
+<key>CFBundleURLTypes</key>
+<array>
+  <dict>
+    <key>CFBundleURLName</key>
+    <string>com.yourname.gptfloatball.url</string>
+    <key>CFBundleURLSchemes</key>
+    <array>
+      <string>gptball</string>
+    </array>
+  </dict>
+</array>
 </dict></plist>
