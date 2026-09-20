@@ -1,18 +1,16 @@
 #import <UIKit/UIKit.h>
 #import <roothide.h>
+#import <objc/runtime.h>
 #import "GPTSettings.h"
-#import "GPTChatViewController.h"
+
+extern void SBSLaunchApplicationWithIdentifier(CFStringRef identifier, Boolean suspended);
 
 static UIWindow *ballWin = nil;
-static UIWindow *chatWin = nil;
-static UINavigationController *chatNav = nil;
 
 @interface Ball : NSObject
 + (instancetype)shared;
 - (void)tap;
-- (void)closeChat;
-- (void)panBall:(UIPanGestureRecognizer *)g;
-- (void)panChat:(UIPanGestureRecognizer *)g;
+- (void)pan:(UIPanGestureRecognizer *)g;
 @end
 
 @implementation Ball
@@ -23,121 +21,11 @@ static UINavigationController *chatNav = nil;
     return i;
 }
 
-- (UIWindowScene *)scene {
-    for (UIScene *s in [UIApplication sharedApplication].connectedScenes) {
-        if ([s isKindOfClass:[UIWindowScene class]] && s.activationState == UISceneActivationStateForegroundActive) {
-            return (UIWindowScene *)s;
-        }
-    }
-    for (UIScene *s in [UIApplication sharedApplication].connectedScenes) {
-        if ([s isKindOfClass:[UIWindowScene class]]) return (UIWindowScene *)s;
-    }
-    return nil;
-}
-
 - (void)tap {
-    if (chatWin) return;
-    UIWindowScene *s = [self scene];
-    if (!s) return;
-
-    @try {
-        CGRect screen = [UIScreen mainScreen].bounds;
-
-        chatWin = [[UIWindow alloc] initWithWindowScene:s];
-        chatWin.frame = screen;
-        chatWin.windowLevel = UIWindowLevelNormal + 1;
-        chatWin.backgroundColor = [UIColor clearColor];
-
-        UIViewController *root = [UIViewController new];
-        root.view.backgroundColor = [UIColor clearColor];
-        chatWin.rootViewController = root;
-
-        // 暗色背景（点击关闭）
-        UIView *dim = [[UIView alloc] initWithFrame:root.view.bounds];
-        dim.backgroundColor = [UIColor colorWithWhite:0 alpha:0.35];
-        dim.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-        [root.view addSubview:dim];
-        UITapGestureRecognizer *tapBg = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(closeChat)];
-        [dim addGestureRecognizer:tapBg];
-
-        // 居中对话框
-        CGFloat scale = [GPTSettings windowScale];
-        CGFloat w = screen.size.width * scale;
-        CGFloat h = screen.size.height * scale;
-        CGFloat x = (screen.size.width - w) / 2.0;
-        CGFloat y = (screen.size.height - h) / 2.0;
-
-        GPTChatViewController *vc = [GPTChatViewController new];
-        UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:vc];
-        nav.view.frame = CGRectMake(x, y, w, h);
-        nav.view.layer.cornerRadius = 16;
-        nav.view.layer.masksToBounds = YES;
-
-        [root addChildViewController:nav];
-        [root.view addSubview:nav.view];
-
-        // 拖拽标题栏
-        UIPanGestureRecognizer *chatPan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(panChat:)];
-        [nav.navigationBar addGestureRecognizer:chatPan];
-
-        chatNav = nav;
-        vc.dismissBlock = ^{ [[Ball shared] closeChat]; };
-
-        [chatWin makeKeyAndVisible];
-    } @catch (NSException *e) {
-        NSLog(@"[GPTFloatBall] tap error: %@", e);
-        if (chatWin) { chatWin.hidden = YES; chatWin = nil; }
-        chatNav = nil;
-    }
+    SBSLaunchApplicationWithIdentifier(CFSTR("com.yourname.gptfloatball.app"), NO);
 }
 
-- (void)closeChat {
-    @try {
-        if (chatNav) {
-            [chatNav.view removeFromSuperview];
-            [chatNav removeFromParentViewController];
-            chatNav = nil;
-        }
-    } @catch (NSException *e) {}
-    if (chatWin) {
-        chatWin.hidden = YES;
-        chatWin = nil;
-    }
-}
-
-- (void)panChat:(UIPanGestureRecognizer *)g {
-    UIView *v = chatNav.view;
-    if (!v) return;
-    CGPoint t = [g translationInView:v.superview];
-    CGPoint c = v.center;
-    c.x += t.x;
-    c.y += t.y;
-    v.center = c;
-    [g setTranslation:CGPointZero inView:v.superview];
-
-    if (g.state == UIGestureRecognizerStateEnded) {
-        CGRect sc = [UIScreen mainScreen].bounds;
-        CGPoint cc = v.center;
-        CGFloat w = v.bounds.size.width;
-        CGFloat h = v.bounds.size.height;
-
-        // 拖出屏幕边缘就关闭
-        BOOL out = (cc.x < w / 4) || (cc.x > sc.size.width - w / 4) ||
-                   (cc.y < h / 4) || (cc.y > sc.size.height - h / 4);
-
-        if (out) {
-            [self closeChat];
-        } else {
-            CGFloat nx = MAX(w / 2, MIN(cc.x, sc.size.width - w / 2));
-            CGFloat ny = MAX(h / 2, MIN(cc.y, sc.size.height - h / 2));
-            [UIView animateWithDuration:0.25 animations:^{
-                v.center = CGPointMake(nx, ny);
-            }];
-        }
-    }
-}
-
-- (void)panBall:(UIPanGestureRecognizer *)g {
+- (void)pan:(UIPanGestureRecognizer *)g {
     UIView *v = g.view;
     UIWindow *w = v.window;
     CGPoint t = [g translationInView:w];
@@ -207,7 +95,7 @@ static void makeBall(void) {
         b.titleLabel.font = [UIFont boldSystemFontOfSize:MAX(14, sz * 0.3)];
     }
     [b addTarget:[Ball shared] action:@selector(tap) forControlEvents:UIControlEventTouchUpInside];
-    UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:[Ball shared] action:@selector(panBall:)];
+    UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:[Ball shared] action:@selector(pan:)];
     [b addGestureRecognizer:pan];
     [ballWin.rootViewController.view addSubview:b];
     NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
