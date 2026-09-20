@@ -7,25 +7,125 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: true
-      - name: Fix prefs
+
+      - name: Prepare prefs
         run: |
-          cd prefs
-          for f in *.m*; do mv "$f" Ctrl.m 2>/dev/null || true; done
-          sed -i '' 's/^GPTFloatBallPrefs_FILES.*/GPTFloatBallPrefs_FILES = Ctrl.m/' Makefile
-          cd ..
-          cp prefs/entry.plist ./entry.plist
-          ls -la
+          rm -rf prefs
+          mkdir -p prefs/Resources
+          cat > prefs/Ctrl.m << 'EOF'
+          #import <Preferences/PSListController.h>
+          #import <Preferences/PSSpecifier.h>
+          #import <UIKit/UIKit.h>
+          #define kDomain @"com.yourname.gptfloatball"
+          #define kPlist @"/var/mobile/Library/Preferences/com.yourname.gptfloatball.plist"
+          @interface GPTFloatBallPrefsRootListController : PSListController
+          @end
+          @implementation GPTFloatBallPrefsRootListController
+          - (NSArray *)specifiers {
+              if (!_specifiers) { _specifiers = [self loadSpecifiersFromPlistName:@"Root" target:self]; }
+              return _specifiers;
+          }
+          - (void)viewWillAppear:(BOOL)animated {
+              [super viewWillAppear:animated];
+              self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"应用更改" style:UIBarButtonItemStyleDone target:self action:@selector(apply)];
+          }
+          - (void)apply {
+              [self.view endEditing:YES];
+              [[[NSUserDefaults alloc] initWithSuiteName:kDomain] synchronize];
+              CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.yourname.gptfloatball/settingsChanged"), NULL, NULL, YES);
+              UIAlertController *a = [UIAlertController alertControllerWithTitle:@"已保存" message:@"设置已生效" preferredStyle:UIAlertControllerStyleAlert];
+              [a addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+              [self presentViewController:a animated:YES completion:nil];
+          }
+          - (id)readPreferenceValue:(PSSpecifier *)s {
+              NSDictionary *p = [NSDictionary dictionaryWithContentsOfFile:kPlist] ?: @{};
+              NSString *k = [s propertyForKey:@"key"]; if (!k) return nil;
+              id v = p[k]; if (!v) v = [s propertyForKey:@"default"];
+              return v;
+          }
+          - (void)setPreferenceValue:(id)v specifier:(PSSpecifier *)s {
+              NSString *k = [s propertyForKey:@"key"]; if (!k) return;
+              NSMutableDictionary *p = [NSMutableDictionary dictionaryWithContentsOfFile:kPlist] ?: [NSMutableDictionary new];
+              p[k] = v; [p writeToFile:kPlist atomically:YES];
+              CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.yourname.gptfloatball/settingsChanged"), NULL, NULL, YES);
+          }
+          - (void)clearHistory {
+              NSMutableDictionary *d = [NSMutableDictionary dictionaryWithContentsOfFile:kPlist] ?: [NSMutableDictionary new];
+              [d removeObjectForKey:@"chatHistory"]; [d writeToFile:kPlist atomically:YES];
+              [self apply];
+          }
+          @end
+          EOF
+
+          cat > prefs/Makefile << 'EOF'
+          include $(THEOS)/makefiles/common.mk
+          BUNDLE_NAME = GPTFloatBallPrefs
+          GPTFloatBallPrefs_FILES = Ctrl.m
+          GPTFloatBallPrefs_INSTALL_PATH = /Library/PreferenceBundles
+          GPTFloatBallPrefs_FRAMEWORKS = UIKit
+          GPTFloatBallPrefs_CFLAGS = -fobjc-arc
+          GPTFloatBallPrefs_LDFLAGS = -Wl,-undefined,dynamic_lookup
+          include $(THEOS_MAKE_PATH)/bundle.mk
+          internal-stage::
+          	$(ECHO_NOTHING)mkdir -p $(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences$(ECHO_END)
+          	$(ECHO_NOTHING)cp -f entry.plist $(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences/GPTFloatBall.plist$(ECHO_END)
+          EOF
+
+          cat > prefs/entry.plist << 'EOF'
+          { entry = { bundle = "GPTFloatBallPrefs"; cell = PSLinkCell; detail = "GPTFloatBallPrefsRootListController"; icon = "ball_icon.png"; isController = 1; label = "GPT悬浮球"; }; }
+          EOF
+
+          cat > prefs/Resources/Info.plist << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+          <key>CFBundleExecutable</key><string>GPTFloatBallPrefs</string>
+          <key>CFBundleIdentifier</key><string>com.yourname.gptfloatball.prefs</string>
+          <key>CFBundleName</key><string>GPTFloatBallPrefs</string>
+          <key>CFBundlePackageType</key><string>BNDL</string>
+          <key>CFBundleShortVersionString</key><string>1.0.0</string>
+          <key>CFBundleVersion</key><string>1.0.0</string>
+          <key>NSPrincipalClass</key><string>PSListController</string>
+          </dict></plist>
+          EOF
+
+          cat > prefs/Resources/Root.plist << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict><key>items</key><array>
+          <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>基本</string></dict>
+          <dict><key>cell</key><string>PSSwitchCell</string><key>default</key><true/><key>defaults</key><string>com.yourname.gptfloatball</string><key>key</key><string>enabled</string><key>label</key><string>启用悬浮球</string></dict>
+          <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>API 配置</string></dict>
+          <dict><key>cell</key><string>PSEditTextCell</string><key>defaults</key><string>com.yourname.gptfloatball</string><key>key</key><string>apiKey</string><key>label</key><string>API Key</string><key>placeholder</key><string>sk-xxxxxxxx</string><key>get</key><string>readPreferenceValue:</string><key>set</key><string>setPreferenceValue:specifier:</string></dict>
+          <dict><key>cell</key><string>PSEditTextCell</string><key>defaults</key><string>com.yourname.gptfloatball</string><key>key</key><string>apiBaseURL</string><key>label</key><string>API 地址</string><key>placeholder</key><string>https://api.deepseek.com/v1/chat/completions</string><key>get</key><string>readPreferenceValue:</string><key>set</key><string>setPreferenceValue:specifier:</string></dict>
+          <dict><key>cell</key><string>PSEditTextCell</string><key>defaults</key><string>com.yourname.gptfloatball</string><key>key</key><string>modelName</string><key>label</key><string>模型</string><key>placeholder</key><string>deepseek-chat</string><key>get</key><string>readPreferenceValue:</string><key>set</key><string>setPreferenceValue:specifier:</string></dict>
+          <dict><key>cell</key><string>PSEditTextCell</string><key>defaults</key><string>com.yourname.gptfloatball</string><key>key</key><string>systemPrompt</string><key>label</key><string>角色预设</string><key>get</key><string>readPreferenceValue:</string><key>set</key><string>setPreferenceValue:specifier:</string></dict>
+          <dict><key>cell</key><string>PSEditTextCell</string><key>defaults</key><string>com.yourname.gptfloatball</string><key>key</key><string>temperature</string><key>label</key><string>温度</string><key>placeholder</key><string>0.7</string><key>get</key><string>readPreferenceValue:</string><key>set</key><string>setPreferenceValue:specifier:</string></dict>
+          <dict><key>cell</key><string>PSEditTextCell</string><key>defaults</key><string>com.yourname.gptfloatball</string><key>key</key><string>maxTokens</string><key>label</key><string>最大 tokens</string><key>placeholder</key><string>1024</string><key>get</key><string>readPreferenceValue:</string><key>set</key><string>setPreferenceValue:specifier:</string></dict>
+          <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>数据</string></dict>
+          <dict><key>cell</key><string>PSButtonCell</string><key>label</key><string>清除对话记录</string><key>action</key><string>clearHistory</string></dict>
+          </array><key>title</key><string>GPT悬浮球</string></dict></plist>
+          EOF
+
+          # 复制 entry.plist 到根目录，避免 cp 找不到
+          cp -f prefs/entry.plist ./entry.plist
+          ls -la prefs/
+
       - name: Cache
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/theos
-          key: theos-v8
+          key: theos-v9
+
       - name: Theos
         uses: huami1314/theos-action@main
+
       - name: GNU Make
         run: echo "$(brew --prefix)/opt/make/libexec/gnubin" >> $GITHUB_PATH
+
       - name: Build
         run: make package THEOS_PACKAGE_SCHEME=roothide FINALPACKAGE=1 TARGET=iphone:clang:latest:15.0
+
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
