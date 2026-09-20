@@ -45,7 +45,7 @@ static UINavigationController *chatNav = nil;
 
         chatWin = [[UIWindow alloc] initWithWindowScene:s];
         chatWin.frame = screen;
-        chatWin.windowLevel = UIWindowLevelAlert + 1000;
+        chatWin.windowLevel = UIWindowLevelNormal + 1;
         chatWin.backgroundColor = [UIColor clearColor];
 
         UIViewController *root = [UIViewController new];
