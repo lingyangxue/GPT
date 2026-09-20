@@ -3,59 +3,252 @@
 #import "GPTSettings.h"
 
 static UIWindow *ballWin = nil;
+static UIView *overlay = nil;
+static UITableView *chatTable = nil;
+static UITextField *chatInput = nil;
+static NSMutableArray *msgs = nil;
 
-@interface Ball : NSObject
+@interface ChatBall : NSObject <UITableViewDelegate, UITableViewDataSource, UITextFieldDelegate>
 + (instancetype)shared;
 - (void)tap;
 - (void)pan:(UIPanGestureRecognizer *)g;
+- (void)close;
+- (void)send;
+- (void)polish;
+- (void)clearAll;
 @end
 
-@implementation Ball
+@implementation ChatBall
 
 + (instancetype)shared {
-    static Ball *i = nil; static dispatch_once_t t;
-    dispatch_once(&t, ^{ i = [[Ball alloc] init]; });
+    static ChatBall *i = nil; static dispatch_once_t t;
+    dispatch_once(&t, ^{ i = [[ChatBall alloc] init]; });
     return i;
 }
 
-- (void)tap {
-    NSURL *url = [NSURL URLWithString:@"gptball://open"];
-    UIApplication *app = [UIApplication sharedApplication];
-    if ([app respondsToSelector:@selector(openURL:options:completionHandler:)]) {
-        [app openURL:url options:@{} completionHandler:^(BOOL success) {
-            NSLog(@"[GPTFloatBall] openURL success = %d", success);
-        }];
-    } else {
-        [app openURL:url];
+- (UIWindow *)mainWin {
+    for (UIScene *sc in [UIApplication sharedApplication].connectedScenes) {
+        if ([sc isKindOfClass:[UIWindowScene class]]) {
+            for (UIWindow *w in ((UIWindowScene *)sc).windows) {
+                if (w.windowLevel == UIWindowLevelNormal) return w;
+            }
+        }
     }
+    return [UIApplication sharedApplication].keyWindow;
 }
 
+- (void)tap {
+    if (overlay) return;
+    UIWindow *host = [self mainWin];
+    if (!host) return;
+    CGRect screen = host.bounds;
+    if (!msgs) msgs = [NSMutableArray array];
+
+    overlay = [[UIView alloc] initWithFrame:screen];
+    overlay.backgroundColor = [UIColor colorWithWhite:0 alpha:0.35];
+    UITapGestureRecognizer *tp = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(close)];
+    [overlay addGestureRecognizer:tp];
+    [host addSubview:overlay];
+
+    CGFloat scale = [GPTSettings windowScale];
+    CGFloat w = screen.size.width * scale;
+    CGFloat h = screen.size.height * scale;
+    UIView *dialog = [[UIView alloc] initWithFrame:CGRectMake((screen.size.width - w) / 2, (screen.size.height - h) / 2, w, h)];
+    dialog.backgroundColor = [UIColor systemBackgroundColor];
+    dialog.layer.cornerRadius = 16;
+    dialog.layer.masksToBounds = YES;
+    [overlay addSubview:dialog];
+
+    UIView *titleBar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 50)];
+    titleBar.backgroundColor = [UIColor secondarySystemBackgroundColor];
+    [dialog addSubview:titleBar];
+
+    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(60, 0, w - 120, 50)];
+    title.text = @"GPT 助手";
+    title.textAlignment = NSTextAlignmentCenter;
+    title.font = [UIFont boldSystemFontOfSize:17];
+    [titleBar addSubview:title];
+
+    UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    closeBtn.frame = CGRectMake(10, 5, 40, 40);
+    [closeBtn setTitle:@"✕" forState:UIControlStateNormal];
+    closeBtn.titleLabel.font = [UIFont systemFontOfSize:20];
+    [closeBtn addTarget:self action:@selector(close) forControlEvents:UIControlEventTouchUpInside];
+    [titleBar addSubview:closeBtn];
+
+    UIButton *clearBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    clearBtn.frame = CGRectMake(w - 60, 5, 50, 40);
+    [clearBtn setTitle:@"清空" forState:UIControlStateNormal];
+    [clearBtn addTarget:self action:@selector(clearAll) forControlEvents:UIControlEventTouchUpInside];
+    [titleBar addSubview:clearBtn];
+
+    CGFloat barH = 60;
+    chatTable = [[UITableView alloc] initWithFrame:CGRectMake(0, 50, w, h - 50 - barH) style:UITableViewStylePlain];
+    chatTable.delegate = self;
+    chatTable.dataSource = self;
+    chatTable.rowHeight = UITableViewAutomaticDimension;
+    chatTable.estimatedRowHeight = 50;
+    chatTable.separatorStyle = UITableViewCellSeparatorStyleNone;
+    [dialog addSubview:chatTable];
+
+    UIView *bar = [[UIView alloc] initWithFrame:CGRectMake(0, h - barH, w, barH)];
+    bar.backgroundColor = [UIColor secondarySystemBackgroundColor];
+    [dialog addSubview:bar];
+
+    CGFloat btnW = 50;
+    CGFloat tfW = w - 2 * btnW - 24;
+    chatInput = [[UITextField alloc] initWithFrame:CGRectMake(12, 10, tfW, 40)];
+    chatInput.placeholder = @"输入消息...";
+    chatInput.borderStyle = UITextBorderStyleRoundedRect;
+    chatInput.delegate = self;
+    chatInput.returnKeyType = UIReturnKeySend;
+    chatInput.backgroundColor = [UIColor systemBackgroundColor];
+    [bar addSubview:chatInput];
+
+    UIButton *polishBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    polishBtn.frame = CGRectMake(12 + tfW, 10, btnW, 40);
+    [polishBtn setTitle:@"润色" forState:UIControlStateNormal];
+    [polishBtn addTarget:self action:@selector(polish) forControlEvents:UIControlEventTouchUpInside];
+    [bar addSubview:polishBtn];
+
+    UIButton *sendBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    sendBtn.frame = CGRectMake(12 + tfW + btnW, 10, btnW, 40);
+    [sendBtn setTitle:@"发送" forState:UIControlStateNormal];
+    [sendBtn addTarget:self action:@selector(send) forControlEvents:UIControlEventTouchUpInside];
+    [bar addSubview:sendBtn];
+
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [chatInput becomeFirstResponder];
+    });
+}
+
+- (void)close {
+    [chatInput resignFirstResponder];
+    if (overlay) { [overlay removeFromSuperview]; overlay = nil; }
+    chatTable = nil;
+    chatInput = nil;
+}
+
+- (void)clearAll {
+    [msgs removeAllObjects];
+    [chatTable reloadData];
+}
+
+- (void)send {
+    NSString *t = [chatInput.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (t.length == 0) return;
+    chatInput.text = @"";
+    [msgs addObject:@{@"role": @"user", @"content": t}];
+    [chatTable reloadData];
+    [self scrollBottom];
+    NSMutableArray *arr = [NSMutableArray array];
+    [arr addObject:@{@"role": @"system", @"content": [GPTSettings systemPrompt]}];
+    for (NSDictionary *m in msgs) [arr addObject:m];
+    [self callAPI:arr polish:NO];
+}
+
+- (void)polish {
+    NSString *t = [chatInput.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (t.length == 0) return;
+    chatInput.text = @"";
+    NSArray *arr = @[
+        @{@"role": @"system", @"content": @"你是一个专业的中文润色助手。只返回润色后的文本。"},
+        @{@"role": @"user", @"content": t}
+    ];
+    [self callAPI:arr polish:YES];
+}
+
+- (void)callAPI:(NSArray *)arr polish:(BOOL)polish {
+    NSString *key = [GPTSettings apiKey];
+    if (key.length == 0) { [self alert:@"请先在 设置 → GPT悬浮球 里填 API Key"]; return; }
+
+    NSDictionary *body = @{
+        @"model": [GPTSettings modelName],
+        @"messages": arr,
+        @"temperature": @([GPTSettings temperature]),
+        @"max_tokens": @([GPTSettings maxTokens])
+    };
+    NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:[GPTSettings apiBaseURL]]];
+    req.HTTPMethod = @"POST";
+    [req setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    [req setValue:[NSString stringWithFormat:@"Bearer %@", key] forHTTPHeaderField:@"Authorization"];
+    req.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
+    req.timeoutInterval = 60;
+
+    [[[NSURLSession sharedSession] dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *resp, NSError *err) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (err) { [self alert:[NSString stringWithFormat:@"网络错误: %@", err.localizedDescription]]; return; }
+            NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+            NSString *reply = json[@"choices"][0][@"message"][@"content"];
+            if (reply.length == 0) {
+                NSString *e = json[@"error"][@"message"];
+                [self alert:e.length > 0 ? e : @"未收到有效回复"];
+                return;
+            }
+            if (polish) {
+                chatInput.text = reply;
+                [chatInput becomeFirstResponder];
+            } else {
+                [msgs addObject:@{@"role": @"assistant", @"content": reply}];
+                [chatTable reloadData];
+                [self scrollBottom];
+            }
+        });
+    }] resume];
+}
+
+- (void)scrollBottom {
+    if (msgs.count == 0) return;
+    NSIndexPath *last = [NSIndexPath indexPathForRow:msgs.count - 1 inSection:0];
+    [chatTable scrollToRowAtIndexPath:last atScrollPosition:UITableViewScrollPositionBottom animated:YES];
+}
+
+- (void)alert:(NSString *)m {
+    UIWindow *host = [self mainWin];
+    UIViewController *vc = host.rootViewController;
+    if (!vc) return;
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"提示" message:m preferredStyle:UIAlertControllerStyleAlert];
+    [a addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+    [vc presentViewController:a animated:YES completion:nil];
+}
+
+- (NSInteger)tableView:(UITableView *)tv numberOfRowsInSection:(NSInteger)s { return msgs.count; }
+
+- (UITableViewCell *)tableView:(UITableView *)tv cellForRowAtIndexPath:(NSIndexPath *)ip {
+    static NSString *cid = @"c";
+    UITableViewCell *cell = [tv dequeueReusableCellWithIdentifier:cid];
+    if (!cell) {
+        cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:cid];
+        cell.textLabel.numberOfLines = 0;
+        cell.textLabel.font = [UIFont systemFontOfSize:15];
+        cell.selectionStyle = UITableViewCellSelectionStyleNone;
+    }
+    NSDictionary *m = msgs[ip.row];
+    BOOL u = [m[@"role"] isEqualToString:@"user"];
+    cell.textLabel.text = u ? [NSString stringWithFormat:@"你: %@", m[@"content"]] : [NSString stringWithFormat:@"GPT: %@", m[@"content"]];
+    cell.textLabel.textColor = u ? [UIColor systemBlueColor] : [UIColor labelColor];
+    return cell;
+}
+
+- (BOOL)textFieldShouldReturn:(UITextField *)tf { [self send]; return YES; }
+
 - (void)pan:(UIPanGestureRecognizer *)g {
-    UIView *v = g.view;
-    UIWindow *w = v.window;
+    UIView *v = g.view; UIWindow *w = v.window;
     CGPoint t = [g translationInView:w];
     CGPoint c = w.center;
-    c.x += t.x;
-    c.y += t.y;
+    c.x += t.x; c.y += t.y;
     w.center = c;
     [g setTranslation:CGPointZero inView:w];
-
     if (g.state == UIGestureRecognizerStateEnded) {
         CGSize sc = [UIScreen mainScreen].bounds.size;
         CGFloat sz = [GPTSettings ballSize];
-        CGFloat x = w.frame.origin.x;
-        CGFloat y = w.frame.origin.y;
-        if (x < sc.width / 2) { x = 10; }
-        else { x = sc.width - sz - 10; }
-        if (y < 60) { y = 60; }
-        if (y > sc.height - sz - 60) { y = sc.height - sz - 60; }
-        [UIView animateWithDuration:0.25 animations:^{
-            w.frame = CGRectMake(x, y, sz, sz);
-        }];
+        CGFloat x = w.frame.origin.x, y = w.frame.origin.y;
+        if (x < sc.width / 2) { x = 10; } else { x = sc.width - sz - 10; }
+        if (y < 60) y = 60;
+        if (y > sc.height - sz - 60) y = sc.height - sz - 60;
+        [UIView animateWithDuration:0.25 animations:^{ w.frame = CGRectMake(x, y, sz, sz); }];
         NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
-        [d setFloat:x forKey:@"ballX"];
-        [d setFloat:y forKey:@"ballY"];
-        [d synchronize];
+        [d setFloat:x forKey:@"ballX"]; [d setFloat:y forKey:@"ballY"]; [d synchronize];
     }
 }
 
@@ -65,15 +258,10 @@ static void makeBall(void) {
     if (ballWin) return;
     UIWindowScene *s = nil;
     for (UIScene *x in [UIApplication sharedApplication].connectedScenes) {
-        if ([x isKindOfClass:[UIWindowScene class]]) {
-            s = (UIWindowScene *)x;
-            break;
-        }
+        if ([x isKindOfClass:[UIWindowScene class]]) { s = (UIWindowScene *)x; break; }
     }
     if (!s) {
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1500000000), dispatch_get_main_queue(), ^{
-            makeBall();
-        });
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1500000000), dispatch_get_main_queue(), ^{ makeBall(); });
         return;
     }
     CGFloat sz = [GPTSettings ballSize];
@@ -99,8 +287,8 @@ static void makeBall(void) {
         [b setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
         b.titleLabel.font = [UIFont boldSystemFontOfSize:MAX(14, sz * 0.3)];
     }
-    [b addTarget:[Ball shared] action:@selector(tap) forControlEvents:UIControlEventTouchUpInside];
-    UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:[Ball shared] action:@selector(pan:)];
+    [b addTarget:[ChatBall shared] action:@selector(tap) forControlEvents:UIControlEventTouchUpInside];
+    UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:[ChatBall shared] action:@selector(pan:)];
     [b addGestureRecognizer:pan];
     [ballWin.rootViewController.view addSubview:b];
     NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
@@ -108,31 +296,22 @@ static void makeBall(void) {
     CGFloat y = [d floatForKey:@"ballY"];
     if (x == 0 && y == 0) {
         CGSize sc = [UIScreen mainScreen].bounds.size;
-        x = sc.width - sz - 20;
-        y = sc.height / 2;
+        x = sc.width - sz - 20; y = sc.height / 2;
     }
     ballWin.frame = CGRectMake(x, y, sz, sz);
     ballWin.hidden = NO;
 }
 
 static void removeBall(void) {
-    if (ballWin) {
-        ballWin.hidden = YES;
-        ballWin = nil;
-    }
+    if (ballWin) { ballWin.hidden = YES; ballWin = nil; }
 }
 
 static void onSettingsChanged(CFNotificationCenterRef c, void *o, CFStringRef n, const void *obj, CFDictionaryRef u) {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        removeBall();
-        makeBall();
-    });
+    dispatch_async(dispatch_get_main_queue(), ^{ removeBall(); makeBall(); });
 }
 
 %ctor {
     %init;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        makeBall();
-    });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ makeBall(); });
     CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, onSettingsChanged, CFSTR("com.yourname.gptfloatball/settingsChanged"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
 }
