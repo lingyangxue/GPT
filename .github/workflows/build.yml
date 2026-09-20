@@ -221,13 +221,15 @@ jobs:
                       <key>key</key><string>enabled</string>
                       <key>label</key><string>启用悬浮球</string>
                   </dict>
-                  <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>API 配置</string><key>footerText</key><string>支持 OpenAI 及兼容接口</string></dict>
+                  <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>API 配置</string><key>footerText</key><string>支持 OpenAI 及兼容接口，填好 Key 和地址即可点“模型”自动获取</string></dict>
                   <dict>
                       <key>cell</key><string>PSEditTextCell</string>
                       <key>defaults</key><string>com.yourname.gptfloatball</string>
                       <key>key</key><string>apiKey</string>
                       <key>label</key><string>API Key</string>
                       <key>placeholder</key><string>sk-xxxxxxxx</string>
+                      <key>get</key><string>readPreferenceValue:</string>
+                      <key>set</key><string>setPreferenceValue:specifier:</string>
                   </dict>
                   <dict>
                       <key>cell</key><string>PSEditTextCell</string>
@@ -235,6 +237,8 @@ jobs:
                       <key>key</key><string>apiBaseURL</string>
                       <key>label</key><string>API 地址</string>
                       <key>placeholder</key><string>https://api.deepseek.com/v1/chat/completions</string>
+                      <key>get</key><string>readPreferenceValue:</string>
+                      <key>set</key><string>setPreferenceValue:specifier:</string>
                   </dict>
                   <dict>
                       <key>cell</key><string>PSLinkCell</string>
@@ -249,6 +253,8 @@ jobs:
                       <key>key</key><string>systemPrompt</string>
                       <key>label</key><string>角色预设</string>
                       <key>placeholder</key><string>你是一个简洁的AI助手，用中文回答。</string>
+                      <key>get</key><string>readPreferenceValue:</string>
+                      <key>set</key><string>setPreferenceValue:specifier:</string>
                   </dict>
                   <dict>
                       <key>cell</key><string>PSEditTextCell</string>
@@ -256,6 +262,8 @@ jobs:
                       <key>key</key><string>temperature</string>
                       <key>label</key><string>温度</string>
                       <key>placeholder</key><string>0.7</string>
+                      <key>get</key><string>readPreferenceValue:</string>
+                      <key>set</key><string>setPreferenceValue:specifier:</string>
                   </dict>
                   <dict>
                       <key>cell</key><string>PSEditTextCell</string>
@@ -263,6 +271,8 @@ jobs:
                       <key>key</key><string>maxTokens</string>
                       <key>label</key><string>最大 tokens</string>
                       <key>placeholder</key><string>1024</string>
+                      <key>get</key><string>readPreferenceValue:</string>
+                      <key>set</key><string>setPreferenceValue:specifier:</string>
                   </dict>
                   <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>图标设置</string></dict>
                   <dict>
@@ -303,7 +313,6 @@ jobs:
               self.title = @"选择模型";
               self.modelList = [NSMutableArray array];
               
-              // 延迟 0.5 秒自动请求，确保上一页的输入框内容已经写入 plist
               dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
                   [self fetchModels];
               });
@@ -325,7 +334,6 @@ jobs:
                   return;
               }
 
-              // 拼接 /models 地址
               NSString *modelsURL = baseURL;
               if ([modelsURL containsString:@"/chat/completions"]) {
                   modelsURL = [modelsURL stringByReplacingOccurrencesOfString:@"/chat/completions" withString:@"/models"];
@@ -430,21 +438,14 @@ jobs:
 
           - (void)viewWillAppear:(BOOL)animated {
               [super viewWillAppear:animated];
-              [self reloadSpecifiers];
               self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc]
                   initWithTitle:@"应用更改" style:UIBarButtonItemStyleDone target:self action:@selector(apply)];
           }
 
-          // 关键：离开页面时强制取消键盘焦点，保存输入框内容
-          - (void)viewWillDisappear:(BOOL)animated {
-              [super viewWillDisappear:animated];
-              [self.view endEditing:YES];
-          }
-
           - (void)apply {
-              [self.view endEditing:YES]; // 强制保存输入框
+              [self.view endEditing:YES];
               NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:kPrefsDomain];
-              [ud synchronize]; // 同步
+              [ud synchronize];
 
               CFNotificationCenterPostNotification(
                   CFNotificationCenterGetDarwinNotifyCenter(),
@@ -455,6 +456,27 @@ jobs:
               [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
               [self presentViewController:alert animated:YES completion:nil];
           }
+
+          // ========== 核心修复：让输入框正确读取和保存 ==========
+          - (id)readPreferenceValue:(PSSpecifier *)specifier {
+              NSDictionary *prefs = [NSDictionary dictionaryWithContentsOfFile:kPrefsPlist] ?: @{};
+              NSString *key = [specifier propertyForKey:@"key"];
+              if (!key) return nil;
+              id val = prefs[key];
+              if (!val) val = [specifier propertyForKey:@"default"];
+              return val;
+          }
+
+          - (void)setPreferenceValue:(id)value specifier:(PSSpecifier *)specifier {
+              NSString *key = [specifier propertyForKey:@"key"];
+              if (!key) return;
+              NSMutableDictionary *prefs = [NSMutableDictionary dictionaryWithContentsOfFile:kPrefsPlist] ?: [NSMutableDictionary new];
+              prefs[key] = value;
+              [prefs writeToFile:kPrefsPlist atomically:YES];
+              // 每次输入立即生效，无需点应用更改
+              CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.yourname.gptfloatball/settingsChanged"), NULL, NULL, YES);
+          }
+          // =======================================================
 
           - (void)pickImage {
               UIImagePickerController *picker = [[UIImagePickerController alloc] init];
