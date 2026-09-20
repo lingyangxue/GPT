@@ -24,7 +24,6 @@ jobs:
           export THEOS = $(CURDIR)/theos
           ARCHS = arm64 arm64e
           TARGET = iphone:clang:latest:15.0
-          INSTALL_TARGET_PROCESSES = SpringBoard
           include $(THEOS)/makefiles/common.mk
           TWEAK_NAME = GPTFloatBall
           GPTFloatBall_FILES = Tweak.xm GPTChatViewController.m GPTSettings.m
@@ -34,35 +33,25 @@ jobs:
           include $(THEOS_MAKE_PATH)/tweak.mk
           SUBPROJECTS += prefs
           include $(THEOS_MAKE_PATH)/aggregate.mk
-          after-install::
-          	install.exec "killall -9 SpringBoard"
           MAKEEOF
 
-          # ---- Tweak.xm（修复悬浮球无法显示的问题） ----
+          # ---- GPTFloatBall.plist（注入所有进程） ----
+          cat > GPTFloatBall.plist << 'PLEOF'
+          { Filter = { }; }
+          PLEOF
+
+          # ---- Tweak.xm（键盘按钮版） ----
           cat > Tweak.xm << 'TWEAKEOF'
           #import <UIKit/UIKit.h>
           #import <roothide.h>
           #import "GPTSettings.h"
           #import "GPTChatViewController.h"
 
-          static UIWindow *gFloatWindow = nil;
-          static UIButton *gFloatButton = nil;
-
-          static UIImage *getBallIcon(void) {
-              NSString *customPath = [GPTSettings iconPath];
-              if (customPath && [[NSFileManager defaultManager] fileExistsAtPath:customPath]) {
-                  UIImage *img = [UIImage imageWithContentsOfFile:customPath];
-                  if (img) return img;
-              }
-              NSString *defaultPath = jbroot(@"/Library/Application Support/GPTFloatBall/ball_icon.png");
-              UIImage *img = [UIImage imageWithContentsOfFile:defaultPath];
-              return img;
-          }
+          static UIButton *gKeyboardButton = nil;
 
           @interface GPTFloatBallHandler : NSObject
           + (instancetype)shared;
-          - (void)ballTapped;
-          - (void)ballPanned:(UIPanGestureRecognizer *)pan;
+          - (void)buttonTapped;
           @end
 
           @implementation GPTFloatBallHandler
@@ -72,23 +61,16 @@ jobs:
               dispatch_once(&onceToken, ^{ inst = [[GPTFloatBallHandler alloc] init]; });
               return inst;
           }
-          - (void)ballTapped {
+          - (void)buttonTapped {
               GPTChatViewController *chatVC = [[GPTChatViewController alloc] init];
               UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:chatVC];
-              
-              // 获取当前窗口场景
-              UIWindowScene *windowScene = nil;
-              for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
-                  if ([scene isKindOfClass:[UIWindowScene class]]) { windowScene = (UIWindowScene *)scene; break; }
+              UIWindow *keyWindow = nil;
+              for (UIWindow *w in [UIApplication sharedApplication].windows) {
+                  if (w.isKeyWindow) { keyWindow = w; break; }
               }
-              
-              UIWindow *chatWindow;
-              if (windowScene) {
-                  chatWindow = [[UIWindow alloc] initWithWindowScene:windowScene];
-                  chatWindow.frame = [UIScreen mainScreen].bounds;
-              } else {
-                  chatWindow = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
-              }
+              if (!keyWindow) return;
+              UIWindow *chatWindow = [[UIWindow alloc] initWithWindowScene:keyWindow.windowScene];
+              chatWindow.frame = [UIScreen mainScreen].bounds;
               chatWindow.windowLevel = UIWindowLevelAlert + 100;
               chatWindow.rootViewController = nav;
               chatWindow.hidden = NO;
@@ -96,98 +78,58 @@ jobs:
               sChatWindow = chatWindow;
               chatVC.dismissBlock = ^{ sChatWindow.hidden = YES; sChatWindow = nil; };
           }
-          - (void)ballPanned:(UIPanGestureRecognizer *)pan {
-              UIView *ball = pan.view; UIWindow *win = ball.window;
-              CGPoint translation = [pan translationInView:win];
-              win.center = CGPointMake(win.center.x + translation.x, win.center.y + translation.y);
-              [pan setTranslation:CGPointZero inView:win];
-              if (pan.state == UIGestureRecognizerStateEnded) {
-                  CGSize screen = [UIScreen mainScreen].bounds.size;
-                  CGFloat x = win.frame.origin.x, y = win.frame.origin.y;
-                  x = (x < screen.width / 2) ? 10 : (screen.width - 70);
-                  y = MAX(60, MIN(y, screen.height - 120));
-                  [UIView animateWithDuration:0.25 animations:^{ win.frame = CGRectMake(x, y, 60, 60); }];
-                  NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-                  [defaults setFloat:x forKey:@"ballX"]; [defaults setFloat:y forKey:@"ballY"]; [defaults synchronize];
-              }
-          }
           @end
 
-          static void createFloatBall(void) {
-              if (gFloatWindow) return;
-
-              // 关键修复：iOS 13+ 必须使用 UIWindowScene 初始化 UIWindow，否则无法显示
-              UIWindowScene *windowScene = nil;
-              for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
-                  if ([scene isKindOfClass:[UIWindowScene class]]) { windowScene = (UIWindowScene *)scene; break; }
+          static void keyboardWillShow(NSNotification *note) {
+              NSDictionary *info = note.userInfo;
+              CGRect kbFrame = [info[UIKeyboardFrameEndUserInfoKey] CGRectValue];
+              UIWindow *kbWindow = nil;
+              for (UIWindow *w in [UIApplication sharedApplication].windows) {
+                  if ([NSStringFromClass(w.class) containsString:@"Keyboard"]) { kbWindow = w; break; }
               }
-              if (!windowScene) return;
-
-              gFloatWindow = [[UIWindow alloc] initWithWindowScene:windowScene];
-              gFloatWindow.frame = CGRectMake(0, 0, 60, 60);
-              gFloatWindow.windowLevel = UIWindowLevelStatusBar + 100;
-              gFloatWindow.backgroundColor = [UIColor clearColor];
-              gFloatWindow.rootViewController = [UIViewController new];
-
-              gFloatButton = [UIButton buttonWithType:UIButtonTypeCustom];
-              gFloatButton.frame = CGRectMake(0, 0, 60, 60);
-              gFloatButton.layer.cornerRadius = 30;
-              gFloatButton.layer.masksToBounds = YES;
-              gFloatButton.backgroundColor = [UIColor colorWithRed:0.1 green:0.45 blue:0.91 alpha:0.85];
-
-              UIImage *icon = getBallIcon();
-              if (icon) {
-                  [gFloatButton setImage:icon forState:UIControlStateNormal];
-                  gFloatButton.imageView.contentMode = UIViewContentModeScaleAspectFill;
-              } else {
-                  [gFloatButton setTitle:@"AI" forState:UIControlStateNormal];
-                  gFloatButton.titleLabel.font = [UIFont boldSystemFontOfSize:18];
-                  [gFloatButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-              }
-
-              gFloatButton.layer.shadowColor = [UIColor blackColor].CGColor;
-              gFloatButton.layer.shadowOffset = CGSizeMake(0, 2);
-              gFloatButton.layer.shadowOpacity = 0.3;
-              gFloatButton.layer.shadowRadius = 4;
-              gFloatButton.layer.masksToBounds = NO;
-
-              [gFloatButton addTarget:[GPTFloatBallHandler shared] action:@selector(ballTapped) forControlEvents:UIControlEventTouchUpInside];
-              UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:[GPTFloatBallHandler shared] action:@selector(ballPanned:)];
-              [gFloatButton addGestureRecognizer:pan];
-              [gFloatWindow.rootViewController.view addSubview:gFloatButton];
-
-              NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-              CGFloat savedX = [defaults floatForKey:@"ballX"];
-              CGFloat savedY = [defaults floatForKey:@"ballY"];
-              if (savedX == 0 && savedY == 0) {
-                  CGSize screen = [UIScreen mainScreen].bounds.size;
-                  savedX = screen.width - 80; savedY = screen.height / 2;
-              }
-              gFloatWindow.frame = CGRectMake(savedX, savedY, 60, 60);
-              gFloatWindow.hidden = NO;
+              if (!kbWindow) return;
+              
+              [gKeyboardButton removeFromSuperview];
+              
+              CGFloat btnH = 36;
+              UIButton *btn = [UIButton buttonWithType:UIButtonTypeSystem];
+              btn.frame = CGRectMake(0, kbFrame.origin.y - btnH, kbFrame.size.width, btnH);
+              [btn setTitle:@"🤖 AI 助手" forState:UIControlStateNormal];
+              btn.backgroundColor = [UIColor colorWithRed:0.1 green:0.45 blue:0.91 alpha:0.9];
+              [btn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+              btn.titleLabel.font = [UIFont systemFontOfSize:15];
+              [btn addTarget:[GPTFloatBallHandler shared] action:@selector(buttonTapped) forControlEvents:UIControlEventTouchUpInside];
+              [kbWindow addSubview:btn];
+              gKeyboardButton = btn;
           }
 
-          static void removeFloatBall(void) {
-              if (gFloatWindow) { gFloatWindow.hidden = YES; gFloatWindow = nil; gFloatButton = nil; }
-          }
-
-          static void settingsChangedCallback(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
-              dispatch_async(dispatch_get_main_queue(), ^{
-                  if ([GPTSettings isEnabled]) { removeFloatBall(); createFloatBall(); }
-                  else { removeFloatBall(); }
-              });
+          static void keyboardWillHide(NSNotification *note) {
+              [gKeyboardButton removeFromSuperview];
+              gKeyboardButton = nil;
           }
 
           %ctor {
               %init;
               if (![GPTSettings isEnabled]) return;
-              dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ createFloatBall(); });
-              CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, settingsChangedCallback, CFSTR("com.yourname.gptfloatball/settingsChanged"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
+              [[NSNotificationCenter defaultCenter] addObserverForName:UIKeyboardWillShowNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
+                  keyboardWillShow(note);
+              }];
+              [[NSNotificationCenter defaultCenter] addObserverForName:UIKeyboardWillHideNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *note) {
+                  keyboardWillHide(note);
+              }];
           }
           TWEAKEOF
 
-          # ---- GPTChatViewController.m（新增润色功能） ----
-          cat > GPTChatViewController.m << 'CHATEOF'
+          # ---- GPTChatViewController.h ----
+          cat > GPTChatViewController.h << 'CHATEOF'
+          #import <UIKit/UIKit.h>
+          @interface GPTChatViewController : UIViewController
+          @property (nonatomic, copy) void (^dismissBlock)(void);
+          @end
+          CHATEOF
+
+          # ---- GPTChatViewController.m（含润色） ----
+          cat > GPTChatViewController.m << 'CHATM'
           #import "GPTChatViewController.h"
           #import "GPTSettings.h"
 
@@ -220,7 +162,6 @@ jobs:
               self.inputField.returnKeyType = UIReturnKeySend; self.inputField.translatesAutoresizingMaskIntoConstraints = NO;
               [inputBar addSubview:self.inputField];
 
-              // 新增：润色按钮
               UIButton *polishBtn = [UIButton buttonWithType:UIButtonTypeSystem];
               [polishBtn setTitle:@"润色" forState:UIControlStateNormal];
               [polishBtn addTarget:self action:@selector(polishText) forControlEvents:UIControlEventTouchUpInside];
@@ -248,15 +189,12 @@ jobs:
                   [self.inputField.leadingAnchor constraintEqualToAnchor:inputBar.leadingAnchor constant:12],
                   [self.inputField.centerYAnchor constraintEqualToAnchor:inputBar.centerYAnchor constant:-10],
                   [self.inputField.trailingAnchor constraintEqualToAnchor:polishBtn.leadingAnchor constant:-4],
-                  
                   [polishBtn.trailingAnchor constraintEqualToAnchor:sendBtn.leadingAnchor constant:-4],
                   [polishBtn.centerYAnchor constraintEqualToAnchor:self.inputField.centerYAnchor],
                   [polishBtn.widthAnchor constraintEqualToConstant:44],
-                  
                   [sendBtn.trailingAnchor constraintEqualToAnchor:inputBar.trailingAnchor constant:-12],
                   [sendBtn.centerYAnchor constraintEqualToAnchor:self.inputField.centerYAnchor],
                   [sendBtn.widthAnchor constraintEqualToConstant:50],
-                  
                   [self.spinner.centerXAnchor constraintEqualToAnchor:inputBar.centerXAnchor],
                   [self.spinner.bottomAnchor constraintEqualToAnchor:inputBar.bottomAnchor constant:-4],
               ]];
@@ -271,7 +209,6 @@ jobs:
               [self.tableView scrollToRowAtIndexPath:last atScrollPosition:UITableViewScrollPositionBottom animated:YES];
           }
 
-          // ===== 润色功能 =====
           - (void)polishText {
               NSString *text = [self.inputField.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
               if (text.length == 0) return;
@@ -280,7 +217,6 @@ jobs:
 
               [self.spinner startAnimating];
               self.inputField.text = @"";
-
               NSArray *apiMessages = @[
                   @{@"role": @"system", @"content": @"你是一个专业的中文润色助手。请对用户提供的文本进行润色，使其更通顺、优美、专业，只返回润色后的文本，不要添加任何解释或对话。"},
                   @{@"role": @"user", @"content": text}
@@ -302,7 +238,7 @@ jobs:
                       NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
                       NSString *reply = json[@"choices"][0][@"message"][@"content"];
                       if (reply.length > 0) {
-                          self.inputField.text = reply; // 将润色结果放回输入框
+                          self.inputField.text = reply;
                           [self.inputField becomeFirstResponder];
                       } else {
                           [self showAlert:@"润色失败，请检查 API 配置"];
@@ -379,7 +315,77 @@ jobs:
               return cell;
           }
           @end
-          CHATEOF
+          CHATM
+
+          # ---- GPTSettings.h ----
+          cat > GPTSettings.h << 'SETH'
+          #import <Foundation/Foundation.h>
+          #define kPrefsDomain @"com.yourname.gptfloatball"
+          static inline NSString *prefsPath(void) {
+              return @"/var/mobile/Library/Preferences/com.yourname.gptfloatball.plist";
+          }
+          @interface GPTSettings : NSObject
+          + (BOOL)isEnabled;
+          + (NSString *)apiKey;
+          + (NSString *)apiBaseURL;
+          + (NSString *)modelName;
+          + (NSString *)iconPath;
+          + (NSString *)systemPrompt;
+          + (double)temperature;
+          + (NSInteger)maxTokens;
+          + (NSArray *)chatHistory;
+          + (void)saveChatHistory:(NSArray *)history;
+          + (void)clearHistory;
+          @end
+          SETH
+
+          # ---- GPTSettings.m ----
+          cat > GPTSettings.m << 'SETM'
+          #import "GPTSettings.h"
+          @implementation GPTSettings
+          + (NSDictionary *)_readPrefs {
+              NSDictionary *dict = [NSDictionary dictionaryWithContentsOfFile:prefsPath()];
+              return dict ?: @{};
+          }
+          + (BOOL)isEnabled { NSNumber *v = [self _readPrefs][@"enabled"]; return v ? [v boolValue] : YES; }
+          + (NSString *)apiKey { return [self _readPrefs][@"apiKey"] ?: @""; }
+          + (NSString *)apiBaseURL {
+              NSString *url = [self _readPrefs][@"apiBaseURL"];
+              return url.length > 0 ? url : @"https://api.openai.com/v1/chat/completions";
+          }
+          + (NSString *)modelName {
+              NSString *m = [self _readPrefs][@"modelName"];
+              return m.length > 0 ? m : @"gpt-4o-mini";
+          }
+          + (NSString *)iconPath {
+              NSString *p = [self _readPrefs][@"iconPath"];
+              return p.length > 0 ? p : nil;
+          }
+          + (NSString *)systemPrompt {
+              NSString *s = [self _readPrefs][@"systemPrompt"];
+              return s.length > 0 ? s : @"你是一个简洁的AI助手，用中文回答。";
+          }
+          + (double)temperature {
+              NSString *t = [self _readPrefs][@"temperature"];
+              return t.length > 0 ? [t doubleValue] : 0.7;
+          }
+          + (NSInteger)maxTokens {
+              NSString *t = [self _readPrefs][@"maxTokens"];
+              return t.length > 0 ? [t integerValue] : 1024;
+          }
+          + (NSArray *)chatHistory { return [self _readPrefs][@"chatHistory"] ?: @[]; }
+          + (void)saveChatHistory:(NSArray *)history {
+              NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithContentsOfFile:prefsPath()] ?: [NSMutableDictionary new];
+              dict[@"chatHistory"] = history;
+              [dict writeToFile:prefsPath() atomically:YES];
+          }
+          + (void)clearHistory {
+              NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithContentsOfFile:prefsPath()] ?: [NSMutableDictionary new];
+              [dict removeObjectForKey:@"chatHistory"];
+              [dict writeToFile:prefsPath() atomically:YES];
+          }
+          @end
+          SETM
 
           # ---- prefs 目录 ----
           mkdir -p prefs/Resources
@@ -438,7 +444,7 @@ jobs:
                       <key>default</key><true/>
                       <key>defaults</key><string>com.yourname.gptfloatball</string>
                       <key>key</key><string>enabled</string>
-                      <key>label</key><string>启用悬浮球</string>
+                      <key>label</key><string>启用键盘助手</string>
                   </dict>
                   <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>API 配置</string><key>footerText</key><string>填好 Key 和地址后，点“获取模型列表”按钮自动拉取</string></dict>
                   <dict>
@@ -500,12 +506,6 @@ jobs:
                       <key>get</key><string>readPreferenceValue:</string>
                       <key>set</key><string>setPreferenceValue:specifier:</string>
                   </dict>
-                  <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>图标设置</string></dict>
-                  <dict>
-                      <key>cell</key><string>PSButtonCell</string>
-                      <key>label</key><string>从相册选择悬浮球图标</string>
-                      <key>action</key><string>pickImage</string>
-                  </dict>
                   <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>数据管理</string></dict>
                   <dict>
                       <key>cell</key><string>PSButtonCell</string>
@@ -513,7 +513,7 @@ jobs:
                       <key>action</key><string>clearHistory</string>
                   </dict>
               </array>
-              <key>title</key><string>GPT悬浮球</string>
+              <key>title</key><string>GPT键盘助手</string>
           </dict>
           </plist>
           ROOTEOF
@@ -521,14 +521,12 @@ jobs:
           cat > prefs/GPTFloatBallPrefsRootListController.m << 'CTLEOF'
           #import <Preferences/PSListController.h>
           #import <Preferences/PSSpecifier.h>
-          #import <spawn.h>
           #import <UIKit/UIKit.h>
 
           #define kPrefsDomain @"com.yourname.gptfloatball"
           #define kPrefsPlist @"/var/mobile/Library/Preferences/com.yourname.gptfloatball.plist"
-          #define kIconPath @"/var/mobile/Library/Preferences/GPTFloatBall_icon.png"
 
-          @interface GPTFloatBallPrefsRootListController : PSListController <UIImagePickerControllerDelegate, UINavigationControllerDelegate>
+          @interface GPTFloatBallPrefsRootListController : PSListController
           @end
 
           @implementation GPTFloatBallPrefsRootListController
@@ -551,7 +549,7 @@ jobs:
               NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:kPrefsDomain];
               [ud synchronize];
               CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.yourname.gptfloatball/settingsChanged"), NULL, NULL, YES);
-              UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"保存成功" message:@"设置已生效，悬浮球已自动刷新。" preferredStyle:UIAlertControllerStyleAlert];
+              UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"保存成功" message:@"设置已生效。" preferredStyle:UIAlertControllerStyleAlert];
               [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
               [self presentViewController:alert animated:YES completion:nil];
           }
@@ -578,15 +576,10 @@ jobs:
               [self.view endEditing:YES];
               NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:kPrefsDomain];
               [ud synchronize];
-
               NSString *apiKey = [ud stringForKey:@"apiKey"];
               NSString *baseURL = [ud stringForKey:@"apiBaseURL"];
               if (!baseURL || baseURL.length == 0) baseURL = @"https://api.deepseek.com/v1/chat/completions";
-
-              if (!apiKey || apiKey.length == 0) {
-                  [self showAlert:@"请先填写 API Key"]; return;
-              }
-
+              if (!apiKey || apiKey.length == 0) { [self showAlert:@"请先填写 API Key"]; return; }
               NSString *modelsURL = baseURL;
               if ([modelsURL containsString:@"/chat/completions"]) {
                   modelsURL = [modelsURL stringByReplacingOccurrencesOfString:@"/chat/completions" withString:@"/models"];
@@ -595,25 +588,19 @@ jobs:
               } else {
                   modelsURL = [modelsURL stringByAppendingString:@"/models"];
               }
-
               NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:modelsURL]];
               req.HTTPMethod = @"GET";
               [req setValue:[NSString stringWithFormat:@"Bearer %@", apiKey] forHTTPHeaderField:@"Authorization"];
               req.timeoutInterval = 15;
-
               UIAlertController *loading = [UIAlertController alertControllerWithTitle:@"获取中..." message:nil preferredStyle:UIAlertControllerStyleAlert];
               [self presentViewController:loading animated:YES completion:nil];
-
               [[[NSURLSession sharedSession] dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
                   dispatch_async(dispatch_get_main_queue(), ^{
                       [loading dismissViewControllerAnimated:YES completion:^{
                           if (error) { [self showAlert:[NSString stringWithFormat:@"网络错误: %@", error.localizedDescription]]; return; }
                           NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
                           NSArray *dataArray = json[@"data"];
-                          if (!dataArray || ![dataArray isKindOfClass:[NSArray class]]) {
-                              [self showAlert:@"获取失败，请检查 API 地址和 Key"]; return;
-                          }
-
+                          if (!dataArray || ![dataArray isKindOfClass:[NSArray class]]) { [self showAlert:@"获取失败，请检查 API 地址和 Key"]; return; }
                           UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"选择模型" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
                           for (NSDictionary *model in dataArray) {
                               NSString *modelID = model[@"id"];
@@ -639,36 +626,6 @@ jobs:
               UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"提示" message:msg preferredStyle:UIAlertControllerStyleAlert];
               [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
               [self presentViewController:alert animated:YES completion:nil];
-          }
-
-          - (void)pickImage {
-              UIImagePickerController *picker = [[UIImagePickerController alloc] init];
-              picker.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
-              picker.delegate = self;
-              picker.allowsEditing = YES;
-              [self presentViewController:picker animated:YES completion:nil];
-          }
-
-          - (void)imagePickerController:(UIImagePickerController *)picker didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *)info {
-              UIImage *image = info[UIImagePickerControllerEditedImage] ?: info[UIImagePickerControllerOriginalImage];
-              [picker dismissViewControllerAnimated:YES completion:^{
-                  if (!image) return;
-                  UIGraphicsBeginImageContextWithOptions(CGSizeMake(128, 128), NO, 1.0);
-                  [image drawInRect:CGRectMake(0, 0, 128, 128)];
-                  UIImage *scaled = UIGraphicsGetImageFromCurrentImageContext();
-                  UIGraphicsEndImageContext();
-                  NSData *data = UIImagePNGRepresentation(scaled);
-                  [data writeToFile:kIconPath atomically:YES];
-                  NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithContentsOfFile:kPrefsPlist] ?: [NSMutableDictionary new];
-                  dict[@"iconPath"] = kIconPath;
-                  [dict writeToFile:kPrefsPlist atomically:YES];
-                  CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.yourname.gptfloatball/settingsChanged"), NULL, NULL, YES);
-                  [self showAlert:@"图标已更新，悬浮球会自动刷新"];
-              }];
-          }
-
-          - (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker {
-              [picker dismissViewControllerAnimated:YES completion:nil];
           }
 
           - (void)clearHistory {
