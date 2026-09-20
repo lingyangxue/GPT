@@ -1,9 +1,6 @@
 #import <UIKit/UIKit.h>
 #import <roothide.h>
-#import <objc/runtime.h>
 #import "GPTSettings.h"
-
-extern void SBSLaunchApplicationWithIdentifier(CFStringRef identifier, Boolean suspended);
 
 static UIWindow *ballWin = nil;
 
@@ -22,7 +19,15 @@ static UIWindow *ballWin = nil;
 }
 
 - (void)tap {
-    SBSLaunchApplicationWithIdentifier(CFSTR("com.yourname.gptfloatball.app"), NO);
+    NSURL *url = [NSURL URLWithString:@"gptball://open"];
+    UIApplication *app = [UIApplication sharedApplication];
+    if ([app respondsToSelector:@selector(openURL:options:completionHandler:)]) {
+        [app openURL:url options:@{} completionHandler:^(BOOL success) {
+            NSLog(@"[GPTFloatBall] openURL success = %d", success);
+        }];
+    } else {
+        [app openURL:url];
+    }
 }
 
 - (void)pan:(UIPanGestureRecognizer *)g {
