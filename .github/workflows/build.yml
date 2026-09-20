@@ -7,17 +7,35 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: true
+
+      - name: Fix filenames
+        run: |
+          cd prefs
+          for f in ./*; do
+            if [[ "$f" == *" "* ]]; then
+              newname=$(echo "$f" | tr -d ' ')
+              rm -f "$newname"
+              mv "$f" "$newname"
+            fi
+          done
+          echo "=== prefs 目录内容 ==="
+          ls -la
+
       - name: Cache
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/theos
-          key: theos-${{ hashFiles('.github/workflows/build.yml') }}
+          key: theos-fixed
+
       - name: Theos
         uses: huami1314/theos-action@main
+
       - name: GNU Make
         run: echo "$(brew --prefix)/opt/make/libexec/gnubin" >> $GITHUB_PATH
+
       - name: Build
         run: make package THEOS_PACKAGE_SCHEME=roothide FINALPACKAGE=1
+
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
