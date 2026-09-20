@@ -15,6 +15,7 @@ static UIButton *sendBtn = nil;
 static UITableView *chatTable = nil;
 static UITextField *chatInput = nil;
 static NSMutableArray *msgs = nil;
+static CGFloat gKbHeight = 0;
 
 @interface ChatBall : NSObject <UITableViewDelegate, UITableViewDataSource, UITextFieldDelegate>
 + (instancetype)shared;
@@ -24,7 +25,6 @@ static NSMutableArray *msgs = nil;
 - (void)send;
 - (void)polish;
 - (void)clearAll;
-- (void)relayout:(CGFloat)kbH;
 @end
 
 @implementation ChatBall
@@ -44,16 +44,17 @@ static NSMutableArray *msgs = nil;
     return [UIApplication sharedApplication].windows.firstObject;
 }
 
-// ============ 根据键盘高度重排所有元素 ============
-- (void)relayout:(CGFloat)kbH {
+// ============ 无动画重排 ============
+- (void)doLayout {
     if (!dlg) return;
     CGRect screen = [UIScreen mainScreen].bounds;
     CGFloat W = screen.size.width;
     CGFloat H = screen.size.height;
+    CGFloat kbH = gKbHeight;
 
     CGFloat scale = [GPTSettings windowScale];
     CGFloat availH = H - kbH;
-    CGFloat topY = 50;                              // 顶部留出状态栏
+    CGFloat topY = 50;
     CGFloat maxH = availH - topY - 10;
     if (maxH < 240) maxH = 240;
 
@@ -63,12 +64,7 @@ static NSMutableArray *msgs = nil;
     CGFloat dialogY = topY + (maxH - dialogH) / 2;
     if (dialogY < topY) dialogY = topY;
 
-    CGRect df = CGRectMake(dialogX, dialogY, dialogW, dialogH);
-    if (kbH > 0) {
-        [UIView animateWithDuration:0.25 animations:^{ dlg.frame = df; }];
-    } else {
-        dlg.frame = df;
-    }
+    dlg.frame = CGRectMake(dialogX, dialogY, dialogW, dialogH);
 
     CGFloat tbH = 50, cbH = 46, ibH = 60;
     titleBar.frame = CGRectMake(0, 0, dialogW, tbH);
@@ -86,25 +82,32 @@ static NSMutableArray *msgs = nil;
     chatTable.frame = CGRectMake(0, tbH, dialogW, dialogH - tbH - cbH - ibH);
 }
 
-// ============ 键盘通知 ============
+// ============ 键盘通知（不做动画，避免死锁） ============
 - (void)kbShow:(NSNotification *)n {
     CGRect kb = [n.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];
-    [self relayout:kb.size.height];
+    gKbHeight = kb.size.height;
+    [self doLayout];
 }
 
 - (void)kbHide:(NSNotification *)n {
-    [self relayout:0];
+    gKbHeight = 0;
+    [self doLayout];
 }
 
 // ============ 打开对话 ============
 - (void)tap {
     if (overlay) return;
+
+    // 先清理旧注册，防止重复
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+
     UIWindow *host = [self hostWin];
     if (!host) return;
     CGRect screen = host.bounds;
     if (!msgs) msgs = [NSMutableArray array];
+    gKbHeight = 0;
 
-    // 背景（可点击关闭）
+    // 背景（点击关闭）
     overlay = [UIButton buttonWithType:UIButtonTypeCustom];
     overlay.frame = screen;
     overlay.backgroundColor = [UIColor colorWithWhite:0 alpha:0.4];
@@ -118,7 +121,6 @@ static NSMutableArray *msgs = nil;
     dlg.layer.masksToBounds = YES;
     [overlay addSubview:dlg];
 
-    // 标题栏
     titleBar = [[UIView alloc] init];
     titleBar.backgroundColor = [UIColor secondarySystemBackgroundColor];
     [dlg addSubview:titleBar];
@@ -134,7 +136,6 @@ static NSMutableArray *msgs = nil;
     [clearBtn addTarget:self action:@selector(clearAll) forControlEvents:UIControlEventTouchUpInside];
     [titleBar addSubview:clearBtn];
 
-    // 底部关闭按钮
     closeBtn = [UIButton buttonWithType:UIButtonTypeSystem];
     [closeBtn setTitle:@"关 闭" forState:UIControlStateNormal];
     closeBtn.titleLabel.font = [UIFont boldSystemFontOfSize:17];
@@ -143,7 +144,6 @@ static NSMutableArray *msgs = nil;
     [closeBtn addTarget:self action:@selector(close) forControlEvents:UIControlEventTouchUpInside];
     [dlg addSubview:closeBtn];
 
-    // 输入栏
     inputBar = [[UIView alloc] init];
     inputBar.backgroundColor = [UIColor secondarySystemBackgroundColor];
     [dlg addSubview:inputBar];
@@ -166,7 +166,6 @@ static NSMutableArray *msgs = nil;
     [sendBtn addTarget:self action:@selector(send) forControlEvents:UIControlEventTouchUpInside];
     [inputBar addSubview:sendBtn];
 
-    // 对话列表
     chatTable = [[UITableView alloc] init];
     chatTable.delegate = self;
     chatTable.dataSource = self;
@@ -175,11 +174,15 @@ static NSMutableArray *msgs = nil;
     chatTable.separatorStyle = UITableViewCellSeparatorStyleNone;
     [dlg addSubview:chatTable];
 
+    [self doLayout];  // 无键盘布局
+
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(kbShow:) name:UIKeyboardWillShowNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(kbHide:) name:UIKeyboardWillHideNotification object:nil];
 
-    [self relayout:0];  // 先按无键盘布局
-    [chatInput becomeFirstResponder];
+    // 延迟聚焦，避免和视图加载冲突
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if (chatInput) [chatInput becomeFirstResponder];
+    });
 }
 
 - (void)close {
@@ -188,6 +191,7 @@ static NSMutableArray *msgs = nil;
     if (overlay) { [overlay removeFromSuperview]; overlay = nil; }
     dlg = nil; titleBar = nil; titleLbl = nil; clearBtn = nil; closeBtn = nil;
     inputBar = nil; polishBtn = nil; sendBtn = nil; chatTable = nil; chatInput = nil;
+    gKbHeight = 0;
 }
 
 - (void)clearAll {
