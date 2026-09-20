@@ -4,7 +4,7 @@
 #import "GPTChatViewController.h"
 
 static UIWindow *ballWin = nil;
-static UIView *overlay = nil;
+static UIWindow *chatWin = nil;
 static UINavigationController *chatNav = nil;
 
 @interface Ball : NSObject
@@ -23,67 +23,85 @@ static UINavigationController *chatNav = nil;
     return i;
 }
 
-- (UIWindow *)hostWindow {
-    UIWindow *best = nil;
-    for (UIWindow *w in [UIApplication sharedApplication].windows) {
-        if (w.windowLevel < 100 && w.rootViewController) {
-            best = w;
-            if (w.isKeyWindow) return w;
+- (UIWindowScene *)scene {
+    for (UIScene *s in [UIApplication sharedApplication].connectedScenes) {
+        if ([s isKindOfClass:[UIWindowScene class]] && s.activationState == UISceneActivationStateForegroundActive) {
+            return (UIWindowScene *)s;
         }
     }
-    return best;
+    for (UIScene *s in [UIApplication sharedApplication].connectedScenes) {
+        if ([s isKindOfClass:[UIWindowScene class]]) return (UIWindowScene *)s;
+    }
+    return nil;
 }
 
 - (void)tap {
-    if (chatNav) return;
-    UIWindow *host = [self hostWindow];
-    if (!host) return;
+    if (chatWin) return;
+    UIWindowScene *s = [self scene];
+    if (!s) return;
 
-    CGRect screen = [UIScreen mainScreen].bounds;
+    @try {
+        CGRect screen = [UIScreen mainScreen].bounds;
 
-    // 半透明背景
-    overlay = [[UIView alloc] initWithFrame:screen];
-    overlay.backgroundColor = [UIColor colorWithWhite:0 alpha:0.35];
-    overlay.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    UITapGestureRecognizer *tapBg = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(closeChat)];
-    [overlay addGestureRecognizer:tapBg];
-    [host addSubview:overlay];
+        chatWin = [[UIWindow alloc] initWithWindowScene:s];
+        chatWin.frame = screen;
+        chatWin.windowLevel = UIWindowLevelAlert + 1000;
+        chatWin.backgroundColor = [UIColor clearColor];
 
-    // 对话框
-    CGFloat scale = [GPTSettings windowScale];
-    CGFloat w = screen.size.width * scale;
-    CGFloat h = screen.size.height * scale;
-    CGFloat x = (screen.size.width - w) / 2.0;
-    CGFloat y = (screen.size.height - h) / 2.0;
+        UIViewController *root = [UIViewController new];
+        root.view.backgroundColor = [UIColor clearColor];
+        chatWin.rootViewController = root;
 
-    GPTChatViewController *vc = [GPTChatViewController new];
-    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:vc];
-    nav.view.frame = CGRectMake(x, y, w, h);
-    nav.view.layer.cornerRadius = 16;
-    nav.view.layer.masksToBounds = YES;
-    nav.view.backgroundColor = [UIColor systemBackgroundColor];
+        // 暗色背景（点击关闭）
+        UIView *dim = [[UIView alloc] initWithFrame:root.view.bounds];
+        dim.backgroundColor = [UIColor colorWithWhite:0 alpha:0.35];
+        dim.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        [root.view addSubview:dim];
+        UITapGestureRecognizer *tapBg = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(closeChat)];
+        [dim addGestureRecognizer:tapBg];
 
-    UIPanGestureRecognizer *chatPan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(panChat:)];
-    [nav.navigationBar addGestureRecognizer:chatPan];
+        // 居中对话框
+        CGFloat scale = [GPTSettings windowScale];
+        CGFloat w = screen.size.width * scale;
+        CGFloat h = screen.size.height * scale;
+        CGFloat x = (screen.size.width - w) / 2.0;
+        CGFloat y = (screen.size.height - h) / 2.0;
 
-    [host.rootViewController addChildViewController:nav];
-    [host addSubview:nav.view];
-    chatNav = nav;
+        GPTChatViewController *vc = [GPTChatViewController new];
+        UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:vc];
+        nav.view.frame = CGRectMake(x, y, w, h);
+        nav.view.layer.cornerRadius = 16;
+        nav.view.layer.masksToBounds = YES;
 
-    vc.dismissBlock = ^{
-        [[Ball shared] closeChat];
-    };
+        [root addChildViewController:nav];
+        [root.view addSubview:nav.view];
+
+        // 拖拽标题栏
+        UIPanGestureRecognizer *chatPan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(panChat:)];
+        [nav.navigationBar addGestureRecognizer:chatPan];
+
+        chatNav = nav;
+        vc.dismissBlock = ^{ [[Ball shared] closeChat]; };
+
+        [chatWin makeKeyAndVisible];
+    } @catch (NSException *e) {
+        NSLog(@"[GPTFloatBall] tap error: %@", e);
+        if (chatWin) { chatWin.hidden = YES; chatWin = nil; }
+        chatNav = nil;
+    }
 }
 
 - (void)closeChat {
-    if (chatNav) {
-        [chatNav.view removeFromSuperview];
-        [chatNav removeFromParentViewController];
-        chatNav = nil;
-    }
-    if (overlay) {
-        [overlay removeFromSuperview];
-        overlay = nil;
+    @try {
+        if (chatNav) {
+            [chatNav.view removeFromSuperview];
+            [chatNav removeFromParentViewController];
+            chatNav = nil;
+        }
+    } @catch (NSException *e) {}
+    if (chatWin) {
+        chatWin.hidden = YES;
+        chatWin = nil;
     }
 }
 
@@ -92,8 +110,8 @@ static UINavigationController *chatNav = nil;
     if (!v) return;
     CGPoint t = [g translationInView:v.superview];
     CGPoint c = v.center;
-    c.x = c.x + t.x;
-    c.y = c.y + t.y;
+    c.x += t.x;
+    c.y += t.y;
     v.center = c;
     [g setTranslation:CGPointZero inView:v.superview];
 
@@ -103,21 +121,15 @@ static UINavigationController *chatNav = nil;
         CGFloat w = v.bounds.size.width;
         CGFloat h = v.bounds.size.height;
 
-        BOOL off = NO;
-        if (cc.x < w / 4) { off = YES; }
-        else if (cc.x > sc.size.width - w / 4) { off = YES; }
-        else if (cc.y < h / 4) { off = YES; }
-        else if (cc.y > sc.size.height - h / 4) { off = YES; }
+        // 拖出屏幕边缘就关闭
+        BOOL out = (cc.x < w / 4) || (cc.x > sc.size.width - w / 4) ||
+                   (cc.y < h / 4) || (cc.y > sc.size.height - h / 4);
 
-        if (off) {
+        if (out) {
             [self closeChat];
         } else {
-            CGFloat nx = cc.x;
-            CGFloat ny = cc.y;
-            if (nx < w / 2) { nx = w / 2; }
-            if (nx > sc.size.width - w / 2) { nx = sc.size.width - w / 2; }
-            if (ny < h / 2) { ny = h / 2; }
-            if (ny > sc.size.height - h / 2) { ny = sc.size.height - h / 2; }
+            CGFloat nx = MAX(w / 2, MIN(cc.x, sc.size.width - w / 2));
+            CGFloat ny = MAX(h / 2, MIN(cc.y, sc.size.height - h / 2));
             [UIView animateWithDuration:0.25 animations:^{
                 v.center = CGPointMake(nx, ny);
             }];
@@ -130,8 +142,8 @@ static UINavigationController *chatNav = nil;
     UIWindow *w = v.window;
     CGPoint t = [g translationInView:w];
     CGPoint c = w.center;
-    c.x = c.x + t.x;
-    c.y = c.y + t.y;
+    c.x += t.x;
+    c.y += t.y;
     w.center = c;
     [g setTranslation:CGPointZero inView:w];
 
