@@ -8,20 +8,120 @@ jobs:
         with:
           submodules: true
 
-      - name: Kill prefs subproject
+      - name: Force files
         run: |
-          rm -rf prefs
-          sed -i '' '/SUBPROJECTS += prefs/d' Makefile
-          sed -i '' '/aggregate.mk/d' Makefile
-          grep -n "GPTFloatBall_FILES" Makefile
-          grep -n "SUBPROJECTS" Makefile || echo "no subprojects - OK"
-          cat Makefile
+          cat > Tweak.xm << 'TWEAKEOF'
+          #import <UIKit/UIKit.h>
+          #import <roothide.h>
+          #import "GPTSettings.h"
+          #import "GPTChatViewController.h"
+          static UIWindow *ballWin = nil;
+          @interface Ball : NSObject
+          + (instancetype)shared;
+          - (void)tap;
+          - (void)pan:(UIPanGestureRecognizer *)g;
+          @end
+          @implementation Ball
+          + (instancetype)shared {
+              static Ball *i = nil; static dispatch_once_t t;
+              dispatch_once(&t, ^{ i = [[Ball alloc] init]; }); return i;
+          }
+          - (void)tap {
+              GPTChatViewController *vc = [GPTChatViewController new];
+              UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:vc];
+              UIWindowScene *s = nil;
+              for (UIScene *x in [UIApplication sharedApplication].connectedScenes) {
+                  if ([x isKindOfClass:[UIWindowScene class]]) { s = (UIWindowScene *)x; break; }
+              }
+              if (!s) return;
+              UIWindow *w = [[UIWindow alloc] initWithWindowScene:s];
+              w.frame = [UIScreen mainScreen].bounds;
+              w.windowLevel = UIWindowLevelAlert + 100;
+              w.rootViewController = nav;
+              w.hidden = NO;
+              static UIWindow *sw = nil; sw = w;
+              vc.dismissBlock = ^{ sw.hidden = YES; sw = nil; };
+          }
+          - (void)pan:(UIPanGestureRecognizer *)g {
+              UIView *v = g.view; UIWindow *w = v.window;
+              CGPoint t = [g translationInView:w];
+              w.center = CGPointMake(w.center.x + t.x, w.center.y + t.y);
+              [g setTranslation:CGPointZero inView:w];
+              if (g.state == UIGestureRecognizerStateEnded) {
+                  CGSize sc = [UIScreen mainScreen].bounds.size;
+                  CGFloat x = w.frame.origin.x, y = w.frame.origin.y;
+                  x = (x < sc.width/2) ? 10 : (sc.width - 70);
+                  y = MAX(60, MIN(y, sc.height - 120));
+                  [UIView animateWithDuration:0.25 animations:^{ w.frame = CGRectMake(x, y, 60, 60); }];
+                  NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+                  [d setFloat:x forKey:@"ballX"]; [d setFloat:y forKey:@"ballY"]; [d synchronize];
+              }
+          }
+          @end
+          static void makeBall(void) {
+              if (ballWin) return;
+              UIWindowScene *s = nil;
+              for (UIScene *x in [UIApplication sharedApplication].connectedScenes) {
+                  if ([x isKindOfClass:[UIWindowScene class]]) { s = (UIWindowScene *)x; break; }
+              }
+              if (!s) { dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1500000000), dispatch_get_main_queue(), ^{ makeBall(); }); return; }
+              ballWin = [[UIWindow alloc] initWithWindowScene:s];
+              ballWin.frame = CGRectMake(0, 0, 60, 60);
+              ballWin.windowLevel = UIWindowLevelStatusBar + 100;
+              ballWin.backgroundColor = [UIColor clearColor];
+              ballWin.rootViewController = [UIViewController new];
+              UIButton *b = [UIButton buttonWithType:UIButtonTypeCustom];
+              b.frame = CGRectMake(0, 0, 60, 60);
+              b.layer.cornerRadius = 30; b.layer.masksToBounds = YES;
+              b.backgroundColor = [UIColor colorWithRed:0.1 green:0.45 blue:0.91 alpha:0.9];
+              [b setTitle:@"AI" forState:UIControlStateNormal];
+              [b setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+              b.titleLabel.font = [UIFont boldSystemFontOfSize:18];
+              [b addTarget:[Ball shared] action:@selector(tap) forControlEvents:UIControlEventTouchUpInside];
+              UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:[Ball shared] action:@selector(pan:)];
+              [b addGestureRecognizer:pan];
+              [ballWin.rootViewController.view addSubview:b];
+              NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+              CGFloat x = [d floatForKey:@"ballX"], y = [d floatForKey:@"ballY"];
+              if (x == 0 && y == 0) { CGSize sc = [UIScreen mainScreen].bounds.size; x = sc.width - 80; y = sc.height / 2; }
+              ballWin.frame = CGRectMake(x, y, 60, 60);
+              ballWin.hidden = NO;
+          }
+          %ctor {
+              %init;
+              dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ makeBall(); });
+          }
+          TWEAKEOF
+
+          cat > Makefile << 'MKEOF'
+          export THEOS = $(CURDIR)/theos
+          ARCHS = arm64 arm64e
+          TARGET = iphone:clang:latest:15.0
+          INSTALL_TARGET_PROCESSES = SpringBoard
+          include $(THEOS)/makefiles/common.mk
+          TWEAK_NAME = GPTFloatBall
+          GPTFloatBall_FILES = Tweak.xm GPTChatViewController.m GPTSettings.m
+          GPTFloatBall_FRAMEWORKS = UIKit Foundation CoreGraphics
+          GPTFloatBall_CFLAGS = -fobjc-arc -Wno-deprecated-declarations
+          GPTFloatBall_LIBRARIES = substrate
+          include $(THEOS_MAKE_PATH)/tweak.mk
+          SUBPROJECTS += prefs
+          include $(THEOS_MAKE_PATH)/aggregate.mk
+          MKEOF
+
+          cat > GPTFloatBall.plist << 'PLEOF'
+          { Filter = { BundlesOS = ( "_Pcom.apple.springboard" ); }; }
+          PLEACKOF
+
+          echo "=== 关键文件 ==="
+          ls -la Tweak.xm Makefile GPTFloatBall.plist
+          ls -la prefs/
 
       - name: Cache
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/theos
-          key: theos-v11
+          key: theos-vfinal
 
       - name: Theos
         uses: huami1314/theos-action@main
@@ -30,7 +130,7 @@ jobs:
         run: echo "$(brew --prefix)/opt/make/libexec/gnubin" >> $GITHUB_PATH
 
       - name: Build
-        run: make package THEOS_PACKAGE_SCHEME=roothide FINALPACKAGE=1 TARGET=iphone:clang:latest:15.0
+        run: make package THEAGE_SCHEME=roothide FINALPACKAGE=1
 
       - name: Upload
         uses: actions/upload-artifact@v4
