@@ -2,7 +2,6 @@
 #import <roothide.h>
 #import <objc/runtime.h>
 #import "GPTSettings.h"
-#import "GPTChatViewController.h"
 
 // ==================== 键盘工具栏 ====================
 @interface GPTToolbar : UIView
@@ -10,7 +9,6 @@
 @end
 
 @implementation GPTToolbar
-
 + (instancetype)shared {
     static GPTToolbar *t = nil;
     static dispatch_once_t onceToken;
@@ -43,18 +41,20 @@
     while (top.presentedViewController) top = top.presentedViewController;
     if (!top) return;
 
-    GPTChatViewController *vc = [GPTChatViewController new];
+    // 动态查找 GPTChatViewController（避免直接 link）
+    Class vcClass = NSClassFromString(@"GPTChatViewController");
+    if (!vcClass) return;
+    UIViewController *vc = [[vcClass alloc] init];
     UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:vc];
     [top presentViewController:nav animated:YES completion:nil];
 }
-
 @end
 
-// swizzle inputAccessoryView：所有输入框自动挂上工具栏
 %hook UITextField
 - (UIView *)inputAccessoryView {
     UIView *v = %orig;
     if (v) return v;
+    if (![GPTSettings isEnabled]) return nil;
     return [GPTToolbar shared];
 }
 %end
@@ -63,11 +63,12 @@
 - (UIView *)inputAccessoryView {
     UIView *v = %orig;
     if (v) return v;
+    if (![GPTSettings isEnabled]) return nil;
     return [GPTToolbar shared];
 }
 %end
 
-// ==================== 悬浮球（只在 SpringBoard） ====================
+// ==================== 悬浮球 ====================
 static BOOL isSB(void) {
     return [[NSBundle mainBundle].bundleIdentifier isEqualToString:@"com.apple.springboard"];
 }
@@ -98,13 +99,11 @@ static CGFloat gKbHeight = 0;
 @end
 
 @implementation ChatBall
-
 + (instancetype)shared {
     static ChatBall *i = nil; static dispatch_once_t t;
     dispatch_once(&t, ^{ i = [[ChatBall alloc] init]; });
     return i;
 }
-
 - (UIWindow *)hostWin {
     for (UIScene *sc in [UIApplication sharedApplication].connectedScenes) {
         if (![sc isKindOfClass:[UIWindowScene class]]) continue;
@@ -113,20 +112,16 @@ static CGFloat gKbHeight = 0;
     }
     return [UIApplication sharedApplication].windows.firstObject;
 }
-
 - (void)doLayout {
     if (!dlg) return;
     CGRect screen = [UIScreen mainScreen].bounds;
     CGFloat W = screen.size.width;
     CGFloat H = screen.size.height;
     CGFloat kbH = gKbHeight;
-
-    CGFloat tbH = 30;
-    CGFloat ibH = 60;
+    CGFloat tbH = 30, ibH = 60;
     CGFloat chatH = (kbH > 0) ? 200 : 0;
     CGFloat dlgH = tbH + chatH + ibH;
     CGFloat dlgY = (kbH > 0) ? (H - kbH - dlgH) : (H - dlgH);
-
     dlg.frame = CGRectMake(0, dlgY, W, dlgH);
     titleBar.frame = CGRectMake(0, 0, W, tbH);
     titleLbl.frame = CGRectMake(0, 0, W, tbH);
@@ -134,25 +129,21 @@ static CGFloat gKbHeight = 0;
     closeBtn.frame = CGRectMake(W - 44, 0, 44, tbH);
     inputBar.frame = CGRectMake(0, dlgH - ibH, W, ibH);
     chatTable.frame = CGRectMake(0, tbH, W, chatH);
-
     CGFloat btnW = 50;
     CGFloat tfW = W - 2 * btnW - 24;
     chatInput.frame = CGRectMake(12, 10, tfW, 40);
     polishBtn.frame = CGRectMake(12 + tfW, 10, btnW, 40);
     sendBtn.frame = CGRectMake(12 + tfW + btnW, 10, btnW, 40);
 }
-
 - (void)kbShow:(NSNotification *)n {
     CGRect kb = [n.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];
     gKbHeight = kb.size.height;
     [self doLayout];
 }
-
 - (void)kbHide:(NSNotification *)n {
     gKbHeight = 0;
     [self doLayout];
 }
-
 - (void)tap {
     if (dlg) return;
     [[NSNotificationCenter defaultCenter] removeObserver:self];
@@ -221,7 +212,6 @@ static CGFloat gKbHeight = 0;
     [dlg addSubview:chatTable];
 
     [self doLayout];
-
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(kbShow:) name:UIKeyboardWillShowNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(kbHide:) name:UIKeyboardWillHideNotification object:nil];
 
@@ -229,7 +219,6 @@ static CGFloat gKbHeight = 0;
         if (chatInput) [chatInput becomeFirstResponder];
     });
 }
-
 - (void)close {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [chatInput resignFirstResponder];
@@ -238,9 +227,7 @@ static CGFloat gKbHeight = 0;
     inputBar = nil; polishBtn = nil; sendBtn = nil; chatTable = nil; chatInput = nil;
     gKbHeight = 0;
 }
-
 - (void)clearAll { [msgs removeAllObjects]; [chatTable reloadData]; }
-
 - (void)send {
     NSString *t = [chatInput.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     if (t.length == 0) return;
@@ -253,7 +240,6 @@ static CGFloat gKbHeight = 0;
     for (NSDictionary *m in msgs) [arr addObject:m];
     [self callAPI:arr polish:NO];
 }
-
 - (void)polish {
     NSString *t = [chatInput.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     if (t.length == 0) { [self alert:@"请先在输入框输入要润色的文字"]; return; }
@@ -264,7 +250,6 @@ static CGFloat gKbHeight = 0;
     ];
     [self callAPI:arr polish:YES];
 }
-
 - (void)callAPI:(NSArray *)arr polish:(BOOL)polish {
     NSString *key = [GPTSettings apiKey];
     if (key.length == 0) { [self alert:@"请先在 设置 → GPT悬浮球 里填 API Key"]; return; }
@@ -311,7 +296,6 @@ static CGFloat gKbHeight = 0;
         });
     }] resume];
 }
-
 - (void)sendText:(NSString *)text {
     [msgs addObject:@{@"role": @"user", @"content": text}];
     [chatTable reloadData];
@@ -321,13 +305,11 @@ static CGFloat gKbHeight = 0;
     for (NSDictionary *m in msgs) [arr addObject:m];
     [self callAPI:arr polish:NO];
 }
-
 - (void)scrollBottom {
     if (msgs.count == 0) return;
     NSIndexPath *last = [NSIndexPath indexPathForRow:msgs.count - 1 inSection:0];
     [chatTable scrollToRowAtIndexPath:last atScrollPosition:UITableViewScrollPositionBottom animated:YES];
 }
-
 - (void)alert:(NSString *)m {
     UIWindow *host = [self hostWin];
     UIViewController *vc = host.rootViewController;
@@ -336,9 +318,7 @@ static CGFloat gKbHeight = 0;
     [a addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
     [vc presentViewController:a animated:YES completion:nil];
 }
-
 - (NSInteger)tableView:(UITableView *)tv numberOfRowsInSection:(NSInteger)s { return msgs.count; }
-
 - (UITableViewCell *)tableView:(UITableView *)tv cellForRowAtIndexPath:(NSIndexPath *)ip {
     static NSString *cid = @"c";
     UITableViewCell *cell = [tv dequeueReusableCellWithIdentifier:cid];
@@ -379,7 +359,6 @@ static CGFloat gKbHeight = 0;
     [copyBtn addTarget:self action:@selector(copyMsg:) forControlEvents:UIControlEventTouchUpInside];
     return cell;
 }
-
 - (void)copyMsg:(UIButton *)sender {
     NSNumber *r = objc_getAssociatedObject(sender, "row");
     if (!r) return;
@@ -391,9 +370,7 @@ static CGFloat gKbHeight = 0;
     [UIPasteboard generalPasteboard].string = text;
     [self alert:@"已复制到剪贴板"];
 }
-
 - (BOOL)textFieldShouldReturn:(UITextField *)tf { [self send]; return YES; }
-
 - (void)pan:(UIPanGestureRecognizer *)g {
     UIView *v = g.view; UIWindow *w = v.window;
     CGPoint t = [g translationInView:w];
@@ -413,10 +390,8 @@ static CGFloat gKbHeight = 0;
         [d setFloat:x forKey:@"ballX"]; [d setFloat:y forKey:@"ballY"]; [d synchronize];
     }
 }
-
 @end
 
-// ==================== 悬浮球创建 ====================
 static UIWindowScene *activeScene(void) {
     for (UIScene *s in [UIApplication sharedApplication].connectedScenes) {
         if ([s isKindOfClass:[UIWindowScene class]] && s.activationState == UISceneActivationStateForegroundActive) {
@@ -428,6 +403,7 @@ static UIWindowScene *activeScene(void) {
 
 static void makeBall(void) {
     if (!isSB()) return;
+    if (![GPTSettings ballEnabled]) return;
     if (ballWin) return;
     UIWindowScene *s = activeScene();
     if (!s) {
@@ -487,6 +463,10 @@ static void onSettingsChanged(CFNotificationCenterRef c, void *o, CFStringRef n,
 
 static void watchdogTick(void) {
     if (!isSB()) return;
+    if (![GPTSettings ballEnabled]) {
+        removeBall();
+        return;
+    }
     UIWindowScene *a = activeScene();
     if (!a) return;
     if (ballWin && ballWin.windowScene == a && !ballWin.hidden) return;
