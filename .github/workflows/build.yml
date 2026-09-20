@@ -8,9 +8,10 @@ jobs:
         with:
           submodules: true
 
-      - name: Write P.m
+      - name: Write Ctrl.m
         run: |
-          cat > prefs/P.m << 'PEOF'
+          rm -f prefs/*.m prefs/*.m*
+          cat > prefs/Ctrl.m << 'CTLEOF'
           #import <Preferences/PSListController.h>
           #import <Preferences/PSSpecifier.h>
           #import <UIKit/UIKit.h>
@@ -32,7 +33,7 @@ jobs:
               [self.view endEditing:YES];
               [[[NSUserDefaults alloc] initWithSuiteName:kPrefsDomain] synchronize];
               CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.yourname.gptfloatball/settingsChanged"), NULL, NULL, YES);
-              UIAlertController *a = [UIAlertController alertControllerWithTitle:@"已保存" message:@"悬浮球已自动刷新。" preferredStyle:UIAlertControllerStyleAlert];
+              UIAlertController *a = [UIAlertController alertControllerWithTitle:@"已保存" message:@"设置已生效，悬浮球已刷新。" preferredStyle:UIAlertControllerStyleAlert];
               [a addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
               [self presentViewController:a animated:YES completion:nil];
           }
@@ -40,13 +41,16 @@ jobs:
               NSDictionary *p = [NSDictionary dictionaryWithContentsOfFile:kPlist] ?: @{};
               NSString *k = [s propertyForKey:@"key"];
               if (!k) return nil;
-              id v = p[k]; if (!v) v = [s propertyForKey:@"default"];
+              id v = p[k];
+              if (!v) v = [s propertyForKey:@"default"];
               return v;
           }
           - (void)setPreferenceValue:(id)v specifier:(PSSpecifier *)s {
-              NSString *k = [s propertyForKey:@"key"]; if (!k) return;
+              NSString *k = [s propertyForKey:@"key"];
+              if (!k) return;
               NSMutableDictionary *p = [NSMutableDictionary dictionaryWithContentsOfFile:kPlist] ?: [NSMutableDictionary new];
-              p[k] = v; [p writeToFile:kPlist atomically:YES];
+              p[k] = v;
+              [p writeToFile:kPlist atomically:YES];
               CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.yourname.gptfloatball/settingsChanged"), NULL, NULL, YES);
           }
           - (void)fetchModelList {
@@ -66,13 +70,15 @@ jobs:
                           if (e) { [self tip:e.localizedDescription]; return; }
                           NSDictionary *j = [NSJSONSerialization JSONObjectWithData:d options:0 error:nil];
                           NSArray *arr = j[@"data"];
-                          if (![arr isKindOfClass:[NSArray class]]) { [self tip:@"获取失败"]; return; }
+                          if (![arr isKindOfClass:[NSArray class]]) { [self tip:@"获取失败，请检查 API 地址和 Key"]; return; }
                           UIAlertController *s = [UIAlertController alertControllerWithTitle:@"选择模型" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
                           for (NSDictionary *m in arr) {
-                              NSString *mid = m[@"id"]; if (mid.length == 0) continue;
+                              NSString *mid = m[@"id"];
+                              if (mid.length == 0) continue;
                               [s addAction:[UIAlertAction actionWithTitle:mid style:UIAlertActionStyleDefault handler:^(UIAlertAction *_) {
                                   NSMutableDictionary *pp = [NSMutableDictionary dictionaryWithContentsOfFile:kPlist] ?: [NSMutableDictionary new];
-                                  pp[@"modelName"] = mid; [pp writeToFile:kPlist atomically:YES];
+                                  pp[@"modelName"] = mid;
+                                  [pp writeToFile:kPlist atomically:YES];
                                   CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.yourname.gptfloatball/settingsChanged"), NULL, NULL, YES);
                                   [self reloadSpecifiers];
                               }]];
@@ -93,7 +99,8 @@ jobs:
           - (void)pickImage {
               UIImagePickerController *p = [[UIImagePickerController alloc] init];
               p.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
-              p.delegate = self; p.allowsEditing = YES;
+              p.delegate = self;
+              p.allowsEditing = YES;
               [self presentViewController:p animated:YES completion:nil];
           }
           - (void)imagePickerController:(UIImagePickerController *)p didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *)info {
@@ -106,7 +113,8 @@ jobs:
                   UIGraphicsEndImageContext();
                   [UIImagePNGRepresentation(scaled) writeToFile:kIcon atomically:YES];
                   NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithContentsOfFile:kPlist] ?: [NSMutableDictionary new];
-                  dict[@"iconPath"] = kIcon; [dict writeToFile:kPlist atomically:YES];
+                  dict[@"iconPath"] = kIcon;
+                  [dict writeToFile:kPlist atomically:YES];
                   CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.yourname.gptfloatball/settingsChanged"), NULL, NULL, YES);
                   [self tip:@"图标已更新"];
               }];
@@ -114,19 +122,19 @@ jobs:
           - (void)imagePickerControllerDidCancel:(UIImagePickerController *)p { [p dismissViewControllerAnimated:YES completion:nil]; }
           - (void)clearHistory {
               NSMutableDictionary *d = [NSMutableDictionary dictionaryWithContentsOfFile:kPlist] ?: [NSMutableDictionary new];
-              [d removeObjectForKey:@"chatHistory"]; [d writeToFile:kPlist atomically:YES];
+              [d removeObjectForKey:@"chatHistory"];
+              [d writeToFile:kPlist atomically:YES];
               [self apply];
           }
           @end
-          PEOF
-          ls -la prefs/
+          CTLEOF
 
-      - name: Fix Makefile
+      - name: Write Makefile
         run: |
           cat > prefs/Makefile << 'MKEOF'
           include $(THEOS)/makefiles/common.mk
           BUNDLE_NAME = GPTFloatBallPrefs
-          GPTFloatBallPrefs_FILES = P.m
+          GPTFloatBallPrefs_FILES = Ctrl.m
           GPTFloatBallPrefs_INSTALL_PATH = /Library/PreferenceBundles
           GPTFloatBallPrefs_FRAMEWORKS = UIKit
           GPTFloatBallPrefs_CFLAGS = -fobjc-arc
@@ -137,11 +145,107 @@ jobs:
           	$(ECHO_NOTHING)cp entry.plist $(THEOS_STAGING_DIR)/Library/PreferenceLoader/Preferences/GPTFloatBall.plist$(ECHO_END)
           MKEOF
 
+      - name: Write Root.plist
+        run: |
+          mkdir -p prefs/Resources
+          cat > prefs/Resources/Root.plist << 'ROOTEOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>items</key>
+              <array>
+                  <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>基本设置</string></dict>
+                  <dict>
+                      <key>cell</key><string>PSSwitchCell</string>
+                      <key>default</key><true/>
+                      <key>defaults</key><string>com.yourname.gptfloatball</string>
+                      <key>key</key><string>enabled</string>
+                      <key>label</key><string>启用悬浮球</string>
+                  </dict>
+                  <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>API 配置</string></dict>
+                  <dict>
+                      <key>cell</key><string>PSEditTextCell</string>
+                      <key>defaults</key><string>com.yourname.gptfloatball</string>
+                      <key>key</key><string>apiKey</string>
+                      <key>label</key><string>API Key</string>
+                      <key>placeholder</key><string>sk-xxxxxxxx</string>
+                      <key>get</key><string>readPreferenceValue:</string>
+                      <key>set</key><string>setPreferenceValue:specifier:</string>
+                  </dict>
+                  <dict>
+                      <key>cell</key><string>PSEditTextCell</string>
+                      <key>defaults</key><string>com.yourname.gptfloatball</string>
+                      <key>key</key><string>apiBaseURL</string>
+                      <key>label</key><string>API 地址</string>
+                      <key>placeholder</key><string>https://api.deepseek.com/v1/chat/completions</string>
+                      <key>get</key><string>readPreferenceValue:</string>
+                      <key>set</key><string>setPreferenceValue:specifier:</string>
+                  </dict>
+                  <dict>
+                      <key>cell</key><string>PSEditTextCell</string>
+                      <key>defaults</key><string>com.yourname.gptfloatball</string>
+                      <key>key</key><string>modelName</string>
+                      <key>label</key><string>当前模型</string>
+                      <key>placeholder</key><string>deepseek-chat</string>
+                      <key>get</key><string>readPreferenceValue:</string>
+                      <key>set</key><string>setPreferenceValue:specifier:</string>
+                  </dict>
+                  <dict>
+                      <key>cell</key><string>PSButtonCell</string>
+                      <key>label</key><string>🔄 获取模型列表</string>
+                      <key>action</key><string>fetchModelList</string>
+                  </dict>
+                  <dict>
+                      <key>cell</key><string>PSEditTextCell</string>
+                      <key>defaults</key><string>com.yourname.gptfloatball</string>
+                      <key>key</key><string>systemPrompt</string>
+                      <key>label</key><string>角色预设</string>
+                      <key>placeholder</key><string>你是一个简洁的AI助手，用中文回答。</string>
+                      <key>get</key><string>readPreferenceValue:</string>
+                      <key>set</key><string>setPreferenceValue:specifier:</string>
+                  </dict>
+                  <dict>
+                      <key>cell</key><string>PSEditTextCell</string>
+                      <key>defaults</key><string>com.yourname.gptfloatball</string>
+                      <key>key</key><string>temperature</string>
+                      <key>label</key><string>温度</string>
+                      <key>placeholder</key><string>0.7</string>
+                      <key>get</key><string>readPreferenceValue:</string>
+                      <key>set</key><string>setPreferenceValue:specifier:</string>
+                  </dict>
+                  <dict>
+                      <key>cell</key><string>PSEditTextCell</string>
+                      <key>defaults</key><string>com.yourname.gptfloatball</string>
+                      <key>key</key><string>maxTokens</string>
+                      <key>label</key><string>最大 tokens</string>
+                      <key>placeholder</key><string>1024</string>
+                      <key>get</key><string>readPreferenceValue:</string>
+                      <key>set</key><string>setPreferenceValue:specifier:</string>
+                  </dict>
+                  <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>图标设置</string></dict>
+                  <dict>
+                      <key>cell</key><string>PSButtonCell</string>
+                      <key>label</key><string>从相册选择悬浮球图标</string>
+                      <key>action</key><string>pickImage</string>
+                  </dict>
+                  <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>数据管理</string></dict>
+                  <dict>
+                      <key>cell</key><string>PSButtonCell</string>
+                      <key>label</key><string>清除对话记录</string>
+                      <key>action</key><string>clearHistory</string>
+                  </dict>
+              </array>
+              <key>title</key><string>GPT悬浮球</string>
+          </dict>
+          </plist>
+          ROOTEOF
+
       - name: Cache
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/theos
-          key: theos-fixed2
+          key: theos-v5
 
       - name: Theos
         uses: huami1314/theos-action@main
