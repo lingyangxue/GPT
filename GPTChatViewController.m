@@ -5,6 +5,7 @@
 @property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, strong) NSMutableArray *messages;
 @property (nonatomic, strong) UITextField *inputField;
+@property (nonatomic, strong) UIView *bar;
 @end
 
 @implementation GPTChatViewController
@@ -17,7 +18,11 @@
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"清空" style:UIBarButtonItemStylePlain target:self action:@selector(clearAll)];
     self.messages = [NSMutableArray arrayWithArray:[GPTSettings chatHistory]];
 
-    self.tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStylePlain];
+    CGFloat W = self.view.bounds.size.width;
+    CGFloat H = self.view.bounds.size.height;
+    CGFloat safeB = self.view.safeAreaInsets.bottom;
+
+    self.tableView = [[UITableView alloc] initWithFrame:CGRectMake(0, 0, W, H - 60 - safeB) style:UITableViewStylePlain];
     self.tableView.delegate = self;
     self.tableView.dataSource = self;
     self.tableView.rowHeight = UITableViewAutomaticDimension;
@@ -25,32 +30,62 @@
     self.tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     [self.view addSubview:self.tableView];
 
-    UIView *bar = [[UIView alloc] initWithFrame:CGRectMake(0, self.view.bounds.size.height - 60, self.view.bounds.size.width, 60)];
-    bar.backgroundColor = [UIColor secondarySystemBackgroundColor];
-    bar.autoresizingMask = UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleWidth;
-    [self.view addSubview:bar];
+    self.bar = [[UIView alloc] initWithFrame:CGRectMake(0, H - 60 - safeB, W, 60 + safeB)];
+    self.bar.backgroundColor = [UIColor secondarySystemBackgroundColor];
+    self.bar.autoresizingMask = UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleWidth;
+    [self.view addSubview:self.bar];
 
-    self.inputField = [[UITextField alloc] initWithFrame:CGRectMake(12, 10, self.view.bounds.size.width - 130, 40)];
+    self.inputField = [[UITextField alloc] initWithFrame:CGRectMake(12, 10, W - 130, 40)];
     self.inputField.placeholder = @"输入消息...";
     self.inputField.borderStyle = UITextBorderStyleRoundedRect;
     self.inputField.delegate = self;
     self.inputField.returnKeyType = UIReturnKeySend;
     self.inputField.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-    [bar addSubview:self.inputField];
+    self.inputField.backgroundColor = [UIColor systemBackgroundColor];
+    [self.bar addSubview:self.inputField];
 
     UIButton *polishBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    polishBtn.frame = CGRectMake(self.view.bounds.size.width - 108, 10, 48, 40);
+    polishBtn.frame = CGRectMake(W - 108, 10, 48, 40);
     [polishBtn setTitle:@"润色" forState:UIControlStateNormal];
     [polishBtn addTarget:self action:@selector(polishText) forControlEvents:UIControlEventTouchUpInside];
     polishBtn.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
-    [bar addSubview:polishBtn];
+    [self.bar addSubview:polishBtn];
 
     UIButton *sendBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    sendBtn.frame = CGRectMake(self.view.bounds.size.width - 56, 10, 48, 40);
+    sendBtn.frame = CGRectMake(W - 56, 10, 48, 40);
     [sendBtn setTitle:@"发送" forState:UIControlStateNormal];
     [sendBtn addTarget:self action:@selector(sendMessage) forControlEvents:UIControlEventTouchUpInside];
     sendBtn.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
-    [bar addSubview:sendBtn];
+    [self.bar addSubview:sendBtn];
+
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(kbShow:) name:UIKeyboardWillShowNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(kbHide:) name:UIKeyboardWillHideNotification object:nil];
+}
+
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [self.inputField becomeFirstResponder];
+    });
+}
+
+- (void)kbShow:(NSNotification *)n {
+    CGRect kb = [n.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];
+    CGFloat h = kb.size.height;
+    CGFloat safeB = self.view.safeAreaInsets.bottom;
+    [UIView animateWithDuration:0.25 animations:^{
+        self.bar.transform = CGAffineTransformMakeTranslation(0, -h + safeB);
+        self.tableView.contentInset = UIEdgeInsetsMake(0, 0, h - safeB, 0);
+        self.tableView.scrollIndicatorInsets = self.tableView.contentInset;
+    }];
+}
+
+- (void)kbHide:(NSNotification *)n {
+    [UIView animateWithDuration:0.25 animations:^{
+        self.bar.transform = CGAffineTransformIdentity;
+        self.tableView.contentInset = UIEdgeInsetsZero;
+        self.tableView.scrollIndicatorInsets = UIEdgeInsetsZero;
+    }];
 }
 
 - (void)close { if (self.dismissBlock) self.dismissBlock(); }
@@ -59,11 +94,10 @@
 - (void)polishText {
     NSString *text = [self.inputField.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     if (text.length == 0) return;
-    NSString *key = [GPTSettings apiKey];
-    if (key.length == 0) { [self alert:@"请先在设置里填 API Key"]; return; }
+    if ([GPTSettings apiKey].length == 0) { [self alert:@"请先在设置里填 API Key"]; return; }
     self.inputField.text = @"";
     NSArray *msgs = @[
-        @{@"role": @"system", @"content": @"你是一个专业的中文润色助手。请对用户提供的文本进行润色，使其更通顺、优美、专业，只返回润色后的文本，不要添加任何解释或对话。"},
+        @{@"role": @"system", @"content": @"你是一个专业的中文润色助手。请对用户提供的文本进行润色，使其更通顺、优美、专业，只返回润色后的文本。"},
         @{@"role": @"user", @"content": text}
     ];
     [self callAPI:msgs isPolish:YES];
@@ -72,12 +106,10 @@
 - (void)sendMessage {
     NSString *text = [self.inputField.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     if (text.length == 0) return;
-    NSString *key = [GPTSettings apiKey];
-    if (key.length == 0) { [self alert:@"请先在设置里填 API Key"]; return; }
+    if ([GPTSettings apiKey].length == 0) { [self alert:@"请先在设置里填 API Key"]; return; }
     self.inputField.text = @"";
     [self.messages addObject:@{@"role": @"user", @"content": text}];
     [self.tableView reloadData];
-
     NSMutableArray *msgs = [NSMutableArray array];
     [msgs addObject:@{@"role": @"system", @"content": [GPTSettings systemPrompt]}];
     for (NSDictionary *m in self.messages) [msgs addObject:m];
@@ -97,7 +129,6 @@
     [req setValue:[NSString stringWithFormat:@"Bearer %@", [GPTSettings apiKey]] forHTTPHeaderField:@"Authorization"];
     req.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
     req.timeoutInterval = 60;
-
     [[[NSURLSession sharedSession] dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *resp, NSError *err) {
         dispatch_async(dispatch_get_main_queue(), ^{
             if (err) { [self alert:[NSString stringWithFormat:@"网络错误: %@", err.localizedDescription]]; return; }
@@ -115,8 +146,10 @@
                 [self.messages addObject:@{@"role": @"assistant", @"content": reply}];
                 [GPTSettings saveChatHistory:self.messages];
                 [self.tableView reloadData];
-                NSIndexPath *last = [NSIndexPath indexPathForRow:self.messages.count - 1 inSection:0];
-                [self.tableView scrollToRowAtIndexPath:last atScrollPosition:UITableViewScrollPositionBottom animated:YES];
+                if (self.messages.count > 0) {
+                    NSIndexPath *last = [NSIndexPath indexPathForRow:self.messages.count - 1 inSection:0];
+                    [self.tableView scrollToRowAtIndexPath:last atScrollPosition:UITableViewScrollPositionBottom animated:YES];
+                }
             }
         });
     }] resume];
@@ -129,7 +162,6 @@
 }
 
 - (BOOL)textFieldShouldReturn:(UITextField *)tf { [self sendMessage]; return YES; }
-
 - (NSInteger)tableView:(UITableView *)tv numberOfRowsInSection:(NSInteger)s { return self.messages.count; }
 
 - (UITableViewCell *)tableView:(UITableView *)tv cellForRowAtIndexPath:(NSIndexPath *)ip {
