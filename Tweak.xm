@@ -26,55 +26,53 @@ static NSMutableArray *msgs = nil;
     return i;
 }
 
-- (UIWindow *)mainWin {
+- (UIWindow *)hostWin {
     for (UIScene *sc in [UIApplication sharedApplication].connectedScenes) {
-        if ([sc isKindOfClass:[UIWindowScene class]]) {
-            for (UIWindow *w in ((UIWindowScene *)sc).windows) {
-                if (w.windowLevel == UIWindowLevelNormal) return w;
-            }
+        if (![sc isKindOfClass:[UIWindowScene class]]) continue;
+        UIWindowScene *ws = (UIWindowScene *)sc;
+        for (UIWindow *w in ws.windows) {
+            if (w.isKeyWindow) return w;
         }
     }
-    return [UIApplication sharedApplication].keyWindow;
+    return [UIApplication sharedApplication].windows.firstObject;
 }
 
 - (void)tap {
     if (overlay) return;
-    UIWindow *host = [self mainWin];
+    UIWindow *host = [self hostWin];
     if (!host) return;
     CGRect screen = host.bounds;
     if (!msgs) msgs = [NSMutableArray array];
 
-    overlay = [[UIView alloc] initWithFrame:screen];
-    overlay.backgroundColor = [UIColor colorWithWhite:0 alpha:0.35];
-    UITapGestureRecognizer *tp = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(close)];
-    [overlay addGestureRecognizer:tp];
-    [host addSubview:overlay];
+    // 全屏暗色按钮，点击任意暗区即可关闭
+    UIButton *bg = [UIButton buttonWithType:UIButtonTypeCustom];
+    bg.frame = screen;
+    bg.backgroundColor = [UIColor colorWithWhite:0 alpha:0.4];
+    [bg addTarget:self action:@selector(close) forControlEvents:UIControlEventTouchUpInside];
+    [host addSubview:bg];
+    overlay = bg;
 
+    // 对话框
     CGFloat scale = [GPTSettings windowScale];
     CGFloat w = screen.size.width * scale;
     CGFloat h = screen.size.height * scale;
-    UIView *dialog = [[UIView alloc] initWithFrame:CGRectMake((screen.size.width - w) / 2, (screen.size.height - h) / 2, w, h)];
+    UIView *dialog = [[UIView alloc] initWithFrame:CGRectMake((screen.size.width-w)/2, (screen.size.height-h)/2, w, h)];
     dialog.backgroundColor = [UIColor systemBackgroundColor];
     dialog.layer.cornerRadius = 16;
     dialog.layer.masksToBounds = YES;
-    [overlay addSubview:dialog];
+    dialog.userInteractionEnabled = YES;
+    [bg addSubview:dialog];
 
+    // 标题栏
     UIView *titleBar = [[UIView alloc] initWithFrame:CGRectMake(0, 0, w, 50)];
     titleBar.backgroundColor = [UIColor secondarySystemBackgroundColor];
     [dialog addSubview:titleBar];
 
-    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(60, 0, w - 120, 50)];
+    UILabel *title = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, w, 50)];
     title.text = @"GPT 助手";
     title.textAlignment = NSTextAlignmentCenter;
     title.font = [UIFont boldSystemFontOfSize:17];
     [titleBar addSubview:title];
-
-    UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    closeBtn.frame = CGRectMake(10, 5, 40, 40);
-    [closeBtn setTitle:@"✕" forState:UIControlStateNormal];
-    closeBtn.titleLabel.font = [UIFont systemFontOfSize:20];
-    [closeBtn addTarget:self action:@selector(close) forControlEvents:UIControlEventTouchUpInside];
-    [titleBar addSubview:closeBtn];
 
     UIButton *clearBtn = [UIButton buttonWithType:UIButtonTypeSystem];
     clearBtn.frame = CGRectMake(w - 60, 5, 50, 40);
@@ -82,16 +80,21 @@ static NSMutableArray *msgs = nil;
     [clearBtn addTarget:self action:@selector(clearAll) forControlEvents:UIControlEventTouchUpInside];
     [titleBar addSubview:clearBtn];
 
-    CGFloat barH = 60;
-    chatTable = [[UITableView alloc] initWithFrame:CGRectMake(0, 50, w, h - 50 - barH) style:UITableViewStylePlain];
-    chatTable.delegate = self;
-    chatTable.dataSource = self;
-    chatTable.rowHeight = UITableViewAutomaticDimension;
-    chatTable.estimatedRowHeight = 50;
-    chatTable.separatorStyle = UITableViewCellSeparatorStyleNone;
-    [dialog addSubview:chatTable];
+    // 底部关闭按钮（大而醒目）
+    CGFloat closeH = 50;
+    UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    closeBtn.frame = CGRectMake(0, h - closeH, w, closeH);
+    [closeBtn setTitle:@"关闭" forState:UIControlStateNormal];
+    closeBtn.titleLabel.font = [UIFont boldSystemFontOfSize:17];
+    closeBtn.backgroundColor = [UIColor systemRedColor];
+    [closeBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    [closeBtn addTarget:self action:@selector(close) forControlEvents:UIControlEventTouchUpInside];
+    [dialog addSubview:closeBtn];
 
-    UIView *bar = [[UIView alloc] initWithFrame:CGRectMake(0, h - barH, w, barH)];
+    // 输入栏
+    CGFloat barH = 60;
+    CGFloat barY = h - closeH - barH;
+    UIView *bar = [[UIView alloc] initWithFrame:CGRectMake(0, barY, w, barH)];
     bar.backgroundColor = [UIColor secondarySystemBackgroundColor];
     [dialog addSubview:bar];
 
@@ -117,14 +120,24 @@ static NSMutableArray *msgs = nil;
     [sendBtn addTarget:self action:@selector(send) forControlEvents:UIControlEventTouchUpInside];
     [bar addSubview:sendBtn];
 
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        [chatInput becomeFirstResponder];
-    });
+    // 对话列表
+    chatTable = [[UITableView alloc] initWithFrame:CGRectMake(0, 50, w, barY - 50) style:UITableViewStylePlain];
+    chatTable.delegate = self;
+    chatTable.dataSource = self;
+    chatTable.rowHeight = UITableViewAutomaticDimension;
+    chatTable.estimatedRowHeight = 50;
+    chatTable.separatorStyle = UITableViewCellSeparatorStyleNone;
+    [dialog addSubview:chatTable];
+
+    [chatInput becomeFirstResponder];
 }
 
 - (void)close {
     [chatInput resignFirstResponder];
-    if (overlay) { [overlay removeFromSuperview]; overlay = nil; }
+    if (overlay) {
+        [overlay removeFromSuperview];
+        overlay = nil;
+    }
     chatTable = nil;
     chatInput = nil;
 }
@@ -204,7 +217,7 @@ static NSMutableArray *msgs = nil;
 }
 
 - (void)alert:(NSString *)m {
-    UIWindow *host = [self mainWin];
+    UIWindow *host = [self hostWin];
     UIViewController *vc = host.rootViewController;
     if (!vc) return;
     UIAlertController *a = [UIAlertController alertControllerWithTitle:@"提示" message:m preferredStyle:UIAlertControllerStyleAlert];
