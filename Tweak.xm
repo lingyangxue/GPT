@@ -3,180 +3,134 @@
 #import "GPTSettings.h"
 #import "GPTChatViewController.h"
 
-static UIWindow *gFloatWindow = nil;
-static UIButton *gFloatButton = nil;
+static UIWindow *ballWin = nil;
+static UIWindow *chatWin = nil;
+static UIWindow *prevKeyWin = nil;
 
-static UIImage *getBallIcon(void) {
-    NSString *customPath = [GPTSettings iconPath];
-    if (customPath && [[NSFileManager defaultManager] fileExistsAtPath:customPath]) {
-        UIImage *img = [UIImage imageWithContentsOfFile:customPath];
-        if (img) return img;
-    }
-    NSString *defaultPath = jbroot(@"/Library/Application Support/GPTFloatBall/ball_icon.png");
-    UIImage *img = [UIImage imageWithContentsOfFile:defaultPath];
-    return img;
-}
-
-// 单例：用于处理点击 / 拖拽
-@interface GPTFloatBallHandler : NSObject
+@interface Ball : NSObject
 + (instancetype)shared;
-- (void)ballTapped;
-- (void)ballPanned:(UIPanGestureRecognizer *)pan;
+- (void)tap;
+- (void)pan:(UIPanGestureRecognizer *)g;
 @end
 
-@implementation GPTFloatBallHandler
-
+@implementation Ball
 + (instancetype)shared {
-    static GPTFloatBallHandler *inst = nil;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        inst = [[GPTFloatBallHandler alloc] init];
-    });
-    return inst;
+    static Ball *i = nil; static dispatch_once_t t;
+    dispatch_once(&t, ^{ i = [[Ball alloc] init]; });
+    return i;
 }
 
-- (void)ballTapped {
-    GPTChatViewController *chatVC = [[GPTChatViewController alloc] init];
-    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:chatVC];
-    UIWindow *chatWindow = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
-    chatWindow.windowLevel = UIWindowLevelAlert + 100;
-    chatWindow.rootViewController = nav;
-    chatWindow.hidden = NO;
+- (UIWindowScene *)scene {
+    for (UIScene *s in [UIApplication sharedApplication].connectedScenes) {
+        if ([s isKindOfClass:[UIWindowScene class]] && s.activationState == UISceneActivationStateForegroundActive) {
+            return (UIWindowScene *)s;
+        }
+    }
+    for (UIScene *s in [UIApplication sharedApplication].connectedScenes) {
+        if ([s isKindOfClass:[UIWindowScene class]]) return (UIWindowScene *)s;
+    }
+    return nil;
+}
 
-    static UIWindow *sChatWindow = nil;
-    sChatWindow = chatWindow;
-
-    chatVC.dismissBlock = ^{
-        sChatWindow.hidden = YES;
-        sChatWindow = nil;
+- (void)tap {
+    if (chatWin) return;
+    UIWindowScene *s = [self scene];
+    if (!s) return;
+    prevKeyWin = [UIApplication sharedApplication].keyWindow;
+    GPTChatViewController *vc = [GPTChatViewController new];
+    UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:vc];
+    CGRect screen = [UIScreen mainScreen].bounds;
+    CGFloat scale = [GPTSettings windowScale];
+    CGFloat w = screen.size.width * scale;
+    CGFloat h = screen.size.height * scale;
+    CGFloat x = (screen.size.width - w) / 2.0;
+    CGFloat y = (screen.size.height - h) / 2.0;
+    chatWin = [[UIWindow alloc] initWithWindowScene:s];
+    chatWin.frame = CGRectMake(x, y, w, h);
+    chatWin.windowLevel = UIWindowLevelAlert;
+    chatWin.rootViewController = nav;
+    chatWin.backgroundColor = [UIColor systemBackgroundColor];
+    chatWin.layer.cornerRadius = 16;
+    chatWin.layer.masksToBounds = YES;
+    [chatWin makeKeyAndVisible];
+    vc.dismissBlock = ^{
+        chatWin.hidden = YES;
+        chatWin = nil;
+        [prevKeyWin makeKeyWindow];
+        prevKeyWin = nil;
     };
 }
 
-- (void)ballPanned:(UIPanGestureRecognizer *)pan {
-    UIView *ball = pan.view;
-    UIWindow *win = ball.window;
-    CGPoint translation = [pan translationInView:win];
-    CGPoint newCenter = CGPointMake(win.center.x + translation.x, win.center.y + translation.y);
-    win.center = newCenter;
-    [pan setTranslation:CGPointZero inView:win];
-
-    if (pan.state == UIGestureRecognizerStateEnded) {
-        CGSize screen = [UIScreen mainScreen].bounds.size;
-        CGFloat x = win.frame.origin.x;
-        CGFloat y = win.frame.origin.y;
-        if (x < screen.width / 2) {
-            x = 10;
-        } else {
-            x = screen.width - 70;
-        }
-        y = MAX(60, MIN(y, screen.height - 120));
-        [UIView animateWithDuration:0.25 animations:^{
-            win.frame = CGRectMake(x, y, 60, 60);
-        }];
-        NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-        [defaults setFloat:x forKey:@"ballX"];
-        [defaults setFloat:y forKey:@"ballY"];
-        [defaults synchronize];
+- (void)pan:(UIPanGestureRecognizer *)g {
+    UIView *v = g.view; UIWindow *w = v.window;
+    CGPoint t = [g translationInView:w];
+    w.center = CGPointMake(w.center.x + t.x, w.center.y + t.y);
+    [g setTranslation:CGPointZero inView:w];
+    if (g.state == UIGestureRecognizerStateEnded) {
+        CGSize sc = [UIScreen mainScreen].bounds.size;
+        CGFloat sz = [GPTSettings< ballSize];
+        CGFloat x = w.framedict.origin.x, y = w.frame><.originkey.y;
+        x = (x < sc.width>/2) ? 10 : (cellsc.width - sz - </10);
+        y = MAX(60, MIN(y, sc.height - sz - 60));
+        [UIView animateWithDuration:0.25 animations:^{ w.frame = CGRectMake(x, y, sz, sz); }];
+        NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+        [d setFloat:x forKey:@"ballX"]; [d setFloat:y forKey:@"ballY"]; [d synchronize];
     }
 }
-
 @end
 
-static void createFloatBall(void) {
-    if (gFloatWindow) return;
-
-    gFloatWindow = [[UIWindow alloc] initWithFrame:CGRectMake(0, 0, 60, 60)];
-    gFloatWindow.windowLevel = UIWindowLevelStatusBar + 100;
-    gFloatWindow.backgroundColor = [UIColor clearColor];
-    gFloatWindow.rootViewController = [UIViewController new];
-
-    gFloatButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    gFloatButton.frame = CGRectMake(0, 0, 60, 60);
-    gFloatButton.layer.cornerRadius = 30;
-    gFloatButton.layer.masksToBounds = YES;
-    gFloatButton.backgroundColor = [UIColor colorWithRed:0.1 green:0.45 blue:0.91 alpha:0.85];
-
-    UIImage *icon = getBallIcon();
+static void makeBall(void) {
+    if (ballWin) return;
+    UIWindowScene *s = nil;
+    for (UIScene *x in [UIApplication sharedApplication].connectedScenes) {
+        if ([x isKindOfClass:[UIWindowScene class]]) { s = (UIWindowScene *)x; break; }
+    }
+    if (!s) { dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1500000000), dispatch_get_main_queue(), ^{ makeBall(); }); return; }
+    CGFloat sz = [GPTSettings ballSize];
+    CGFloat alpha = [GPTSettings ballOpacity];
+    ballWin = [[UIWindow alloc] initWithWindowScene:s];
+    ballWin.frame = CGRectMake(0, 0, sz, sz);
+    ballWin.windowLevel = UIWindowLevelStatusBar + 100;
+    ballWin.backgroundColor = [UIColor clearColor];
+    ballWin.rootViewController = [UIViewController new];
+    UIButton *b = [UIButton buttonWithType:UIButtonTypeCustom];
+    b.frame = CGRectMake(0, 0, sz, sz);
+    b.layer.cornerRadius = sz / 2.0;
+    b.layer.masksToBounds = YES;
+    b.backgroundColor = [UIColor colorWithRed:0.1 green:0.45 blue:0.91 alpha:1.0];
+    b.alpha = alpha;
+    NSString *iconPath = [GPTSettings iconPath];
+    UIImage *icon = iconPath ? [UIImage imageWithContentsOfFile:iconPath] : nil;
     if (icon) {
-        [gFloatButton setImage:icon forState:UIControlStateNormal];
-        gFloatButton.imageView.contentMode = UIViewContentModeScaleAspectFill;
+        [b setImage:icon forState:UIControlStateNormal];
+        b.imageView.contentMode = UIViewContentModeScaleAspectFill;
     } else {
-        [gFloatButton setTitle:@"AI" forState:UIControlStateNormal];
-        gFloatButton.titleLabel.font = [UIFont boldSystemFontOfSize:18];
-        [gFloatButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+        [b setTitle:@"AI" forState:UIControlStateNormal];
+        [b setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+        b.titleLabel.font = [UIFont boldSystemFontOfSize:MAX(14, sz * 0.3)];
     }
-
-    gFloatButton.layer.shadowColor = [UIColor blackColor].CGColor;
-    gFloatButton.layer.shadowOffset = CGSizeMake(0, 2);
-    gFloatButton.layer.shadowOpacity = 0.3;
-    gFloatButton.layer.shadowRadius = 4;
-    gFloatButton.layer.masksToBounds = NO;
-
-    // 用单例作为 target
-    [gFloatButton addTarget:[GPTFloatBallHandler shared]
-                    action:@selector(ballTapped)
-          forControlEvents:UIControlEventTouchUpInside];
-
-    UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc]
-        initWithTarget:[GPTFloatBallHandler shared]
-                action:@selector(ballPanned:)];
-    [gFloatButton addGestureRecognizer:pan];
-
-    [gFloatWindow.rootViewController.view addSubview:gFloatButton];
-
-    NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
-    CGFloat savedX = [defaults floatForKey:@"ballX"];
-    CGFloat savedY = [defaults floatForKey:@"ballY"];
-    if (savedX == 0 && savedY == 0) {
-        CGSize screen = [UIScreen mainScreen].bounds.size;
-        savedX = screen.width - 80;
-        savedY = screen.height / 2;
+    [b addTarget:[Ball shared] action:@selector(tap) forControlEvents:UIControlEventTouchUpInside];
+    UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:[Ball shared] action:@selector(pan:)];
+    [b addGestureRecognizer:pan];
+    [ballWin.rootViewController.view addSubview:b];
+    NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+    CGFloat x = [d floatForKey:@"ballX"], y = [d floatForKey:@"ballY"];
+    if (x == 0 && y == 0) {
+        CGSize sc = [UIScreen mainScreen].bounds.size;
+        x = sc.width - sz - 20; y = sc.height / 2;
     }
-    gFloatWindow.frame = CGRectMake(savedX, savedY, 60, 60);
-
-    gFloatWindow.hidden = NO;
+    ballWin.frame = CGRectMake(x, y, sz, sz);
+    ballWin.hidden = NO;
 }
 
-static void removeFloatBall(void) {
-    if (gFloatWindow) {
-        gFloatWindow.hidden = YES;
-        gFloatWindow = nil;
-        gFloatButton = nil;
-    }
-}
+static void removeBall(void) { if (ballWin) { ballWin.hidden = YES; ballWin = nil; } }
 
-// 通知回调：必须是静态 C 函数，不能用 block（ARC 下会编译失败）
-static void settingsChangedCallback(CFNotificationCenterRef center,
-                                    void *observer,
-                                    CFStringRef name,
-                                    const void *object,
-                                    CFDictionaryRef userInfo) {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        if ([GPTSettings isEnabled]) {
-            removeFloatBall();
-            createFloatBall();
-        } else {
-            removeFloatBall();
-        }
-    });
+static void onSettingsChanged(CFNotificationCenterRef c, void *o, CFStringRef n, const void *obj, CFDictionaryRef u) {
+    dispatch_async(dispatch_get_main_queue(), ^{ removeBall(); makeBall(); });
 }
 
 %ctor {
     %init;
-
-    if (![GPTSettings isEnabled]) return;
-
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3.0 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
-        createFloatBall();
-    });
-
-    CFNotificationCenterAddObserver(
-        CFNotificationCenterGetDarwinNotifyCenter(),
-        NULL,
-        settingsChangedCallback,
-        CFSTR("com.yourname.gptfloatball/settingsChanged"),
-        NULL,
-        CFNotificationSuspensionBehaviorDeliverImmediately
-    );
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ makeBall(); });
+    CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, onSettingsChanged, CFSTR("com.yourname.gptfloatball/settingsChanged"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
 }
