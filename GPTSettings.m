@@ -1,12 +1,10 @@
 #import "GPTSettings.h"
 
 @implementation GPTSettings
-
 + (NSDictionary *)_readPrefs {
     NSDictionary *dict = [NSDictionary dictionaryWithContentsOfFile:prefsPath()];
     return dict ?: @{};
 }
-
 + (void)setValue:(id)value forKey:(NSString *)key {
     if (!key) return;
     NSMutableDictionary *dict = [NSMutableDictionary dictionaryWithContentsOfFile:prefsPath()] ?: [NSMutableDictionary new];
@@ -15,18 +13,13 @@
     [dict writeToFile:prefsPath() atomically:YES];
     CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.yourname.gptfloatball/settingsChanged"), NULL, NULL, YES);
 }
-
 + (BOOL)_boolForKey:(NSString *)k def:(BOOL)d {
     id v = [self _readPrefs][k];
     if (!v) return d;
-    if ([v isKindOfClass:[NSNumber class]]) return [v boolValue];
-    if ([v isKindOfClass:[NSString class]]) return [v boolValue];
-    return d;
+    return [v boolValue];
 }
-
-+ (BOOL)isEnabled { return YES; }
-+ (BOOL)ballEnabled { return YES; }
-
++ (BOOL)isEnabled { return [self _boolForKey:@"enabled" def:YES]; }
++ (BOOL)ballEnabled { return [self _boolForKey:@"ballEnabled" def:YES]; }
 + (NSString *)apiKey { return [self _readPrefs][@"apiKey"] ?: @""; }
 + (NSString *)apiBaseURL {
     NSString *url = [self _readPrefs][@"apiBaseURL"];
