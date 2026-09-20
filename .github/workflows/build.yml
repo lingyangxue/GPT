@@ -12,12 +12,14 @@ jobs:
           cd prefs
           for f in *.m*; do mv "$f" Ctrl.m 2>/dev/null || true; done
           sed -i '' 's/^GPTFloatBallPrefs_FILES.*/GPTFloatBallPrefs_FILES = Ctrl.m/' Makefile
+          cd ..
+          cp prefs/entry.plist ./entry.plist
           ls -la
       - name: Cache
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/theos
-          key: theos-v7
+          key: theos-v8
       - name: Theos
         uses: huami1314/theos-action@main
       - name: GNU Make
