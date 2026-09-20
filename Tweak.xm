@@ -1,5 +1,6 @@
 #import <UIKit/UIKit.h>
 #import <roothide.h>
+#import <objc/runtime.h>
 #import "GPTSettings.h"
 
 static UIWindow *ballWin = nil;
@@ -16,6 +17,9 @@ static UITextField *chatInput = nil;
 static NSMutableArray *msgs = nil;
 static CGFloat gKbHeight = 0;
 
+static void makeBall(void);
+static void removeBall(void);
+
 @interface ChatBall : NSObject <UITableViewDelegate, UITableViewDataSource, UITextFieldDelegate>
 + (instancetype)shared;
 - (void)tap;
@@ -24,6 +28,7 @@ static CGFloat gKbHeight = 0;
 - (void)send;
 - (void)polish;
 - (void)clearAll;
+- (void)copyMsg:(UIButton *)sender;
 @end
 
 @implementation ChatBall
@@ -49,19 +54,16 @@ static CGFloat gKbHeight = 0;
     CGFloat W = screen.size.width;
     CGFloat H = screen.size.height;
     CGFloat kbH = gKbHeight;
-
     CGFloat scale = [GPTSettings windowScale];
     CGFloat availH = H - kbH;
     CGFloat topY = 50;
     CGFloat maxH = availH - topY - 10;
     if (maxH < 240) maxH = 240;
-
     CGFloat dialogH = MIN(H * scale, maxH);
     CGFloat dialogW = W * scale;
     CGFloat dialogX = (W - dialogW) / 2;
     CGFloat dialogY = topY + (maxH - dialogH) / 2;
     if (dialogY < topY) dialogY = topY;
-
     dlg.frame = CGRectMake(dialogX, dialogY, dialogW, dialogH);
 
     CGFloat tbH = 50, ibH = 60;
@@ -93,7 +95,6 @@ static CGFloat gKbHeight = 0;
 - (void)tap {
     if (overlay) return;
     [[NSNotificationCenter defaultCenter] removeObserver:self];
-
     UIWindow *host = [self hostWin];
     if (!host) return;
     CGRect screen = host.bounds;
@@ -153,7 +154,7 @@ static CGFloat gKbHeight = 0;
     chatTable.delegate = self;
     chatTable.dataSource = self;
     chatTable.rowHeight = UITableViewAutomaticDimension;
-    chatTable.estimatedRowHeight = 44;
+    chatTable.estimatedRowHeight = 50;
     chatTable.separatorStyle = UITableViewCellSeparatorStyleNone;
     [dlg addSubview:chatTable];
 
@@ -194,12 +195,13 @@ static CGFloat gKbHeight = 0;
     [self callAPI:arr polish:NO];
 }
 
+// ============ 润色：让话说得更有意思 ============
 - (void)polish {
     NSString *t = [chatInput.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
     if (t.length == 0) { [self alert:@"请先在输入框输入要润色的文字"]; return; }
     chatInput.text = @"";
     NSArray *arr = @[
-        @{@"role": @"system", @"content": @"你是一个专业的中文润色助手。请对用户提供的文本进行润色，使其更通顺、优美、专业。只输出润色后的文本，不要添加任何解释、对话或引号。"},
+        @{@"role": @"system", @"content": @"你是一个中文表达优化助手。用户会给你一句话，你要把这句话改得更有意思、更生动、更有魅力、更好听，但必须保持原意。只返回改写后的文本，不要添加任何解释、对话或引号。"},
         @{@"role": @"user", @"content": t}
     ];
     [self callAPI:arr polish:YES];
@@ -232,7 +234,6 @@ static CGFloat gKbHeight = 0;
                 [self alert:e.length > 0 ? e : @"未收到有效回复"];
                 return;
             }
-
             if (polish) {
                 UIWindow *host = [self hostWin];
                 UIViewController *vc = host.rootViewController;
@@ -282,6 +283,7 @@ static CGFloat gKbHeight = 0;
 
 - (NSInteger)tableView:(UITableView *)tv numberOfRowsInSection:(NSInteger)s { return msgs.count; }
 
+// ============ 每条消息：文字 + 右侧复制按钮 ============
 - (UITableViewCell *)tableView:(UITableView *)tv cellForRowAtIndexPath:(NSIndexPath *)ip {
     static NSString *cid = @"c";
     UITableViewCell *cell = [tv dequeueReusableCellWithIdentifier:cid];
@@ -289,32 +291,57 @@ static CGFloat gKbHeight = 0;
         cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:cid];
         cell.selectionStyle = UITableViewCellSelectionStyleNone;
 
-        UITextView *textView = [[UITextView alloc] init];
-        textView.editable = NO;
-        textView.selectable = YES;
-        textView.scrollEnabled = NO;
-        textView.backgroundColor = [UIColor clearColor];
-        textView.font = [UIFont systemFontOfSize:15];
-        textView.textContainerInset = UIEdgeInsetsZero;
-        textView.textContainer.lineFragmentPadding = 0;
-        textView.dataDetectorTypes = UIDataDetectorTypeNone;
-        textView.tag = 9999;
-        textView.translatesAutoresizingMaskIntoConstraints = NO;
-        [cell.contentView addSubview:textView];
+        UILabel *lbl = [[UILabel alloc] init];
+        lbl.numberOfLines = 0;
+        lbl.font = [UIFont systemFontOfSize:15];
+        lbl.tag = 9999;
+        lbl.translatesAutoresizingMaskIntoConstraints = NO;
+        [cell.contentView addSubview:lbl];
+
+        UIButton *copyBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+        [copyBtn setTitle:@"📋" forState:UIControlStateNormal];
+        copyBtn.titleLabel.font = [UIFont systemFontOfSize:16];
+        copyBtn.tag = 9998;
+        copyBtn.translatesAutoresizingMaskIntoConstraints = NO;
+        [cell.contentView addSubview:copyBtn];
 
         [NSLayoutConstraint activateConstraints:@[
-            [textView.topAnchor constraintEqualToAnchor:cell.contentView.topAnchor constant:8],
-            [textView.bottomAnchor constraintEqualToAnchor:cell.contentView.bottomAnchor constant:-8],
-            [textView.leadingAnchor constraintEqualToAnchor:cell.contentView.leadingAnchor constant:16],
-            [textView.trailingAnchor constraintEqualToAnchor:cell.contentView.trailingAnchor constant:-16],
+            [lbl.leadingAnchor constraintEqualToAnchor:cell.contentView.leadingAnchor constant:16],
+            [lbl.topAnchor constraintEqualToAnchor:cell.contentView.topAnchor constant:8],
+            [lbl.bottomAnchor constraintEqualToAnchor:cell.contentView.bottomAnchor constant:-8],
+            [lbl.trailingAnchor constraintEqualToAnchor:copyBtn.leadingAnchor constant:-6],
+
+            [copyBtn.trailingAnchor constraintEqualToAnchor:cell.contentView.trailingAnchor constant:-10],
+            [copyBtn.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor],
+            [copyBtn.widthAnchor constraintEqualToConstant:36],
+            [copyBtn.heightAnchor constraintEqualToConstant:36],
         ]];
     }
-    UITextView *tv2 = [cell.contentView viewWithTag:9999];
+    UILabel *lbl = [cell.contentView viewWithTag:9999];
+    UIButton *copyBtn = [cell.contentView viewWithTag:9998];
+
     NSDictionary *m = msgs[ip.row];
     BOOL u = [m[@"role"] isEqualToString:@"user"];
-    tv2.text = u ? [NSString stringWithFormat:@"你: %@", m[@"content"]] : [NSString stringWithFormat:@"GPT: %@", m[@"content"]];
-    tv2.textColor = u ? [UIColor systemBlueColor] : [UIColor labelColor];
+    lbl.text = u ? [NSString stringWithFormat:@"你: %@", m[@"content"]] : [NSString stringWithFormat:@"GPT: %@", m[@"content"]];
+    lbl.textColor = u ? [UIColor systemBlueColor] : [UIColor labelColor];
+
+    [copyBtn removeTarget:nil action:nil forControlEvents:UIControlEventAllEvents];
+    objc_setAssociatedObject(copyBtn, "row", @(ip.row), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    [copyBtn addTarget:self action:@selector(copyMsg:) forControlEvents:UIControlEventTouchUpInside];
+
     return cell;
+}
+
+- (void)copyMsg:(UIButton *)sender {
+    NSNumber *r = objc_getAssociatedObject(sender, "row");
+    if (!r) return;
+    NSInteger row = r.integerValue;
+    if (row < 0 || row >= (NSInteger)msgs.count) return;
+    NSDictionary *m = msgs[row];
+    NSString *text = m[@"content"];
+    if (text.length == 0) return;
+    [UIPasteboard generalPasteboard].string = text;
+    [self alert:@"已复制到剪贴板"];
 }
 
 - (BOOL)textFieldShouldReturn:(UITextField *)tf { [self send]; return YES; }
@@ -341,11 +368,23 @@ static CGFloat gKbHeight = 0;
 
 @end
 
+// ============ 悬浮球创建 ============
+static UIWindowScene *activeScene(void) {
+    for (UIScene *s in [UIApplication sharedApplication].connectedScenes) {
+        if ([s isKindOfClass:[UIWindowScene class]] && s.activationState == UISceneActivationStateForegroundActive) {
+            return (UIWindowScene *)s;
+        }
+    }
+    return nil;
+}
+
 static void makeBall(void) {
     if (ballWin) return;
-    UIWindowScene *s = nil;
-    for (UIScene *x in [UIApplication sharedApplication].connectedScenes) {
-        if ([x isKindOfClass:[UIWindowScene class]]) { s = (UIWindowScene *)x; break; }
+    UIWindowScene *s = activeScene();
+    if (!s) {
+        for (UIScene *x in [UIApplication sharedApplication].connectedScenes) {
+            if ([x isKindOfClass:[UIWindowScene class]]) { s = (UIWindowScene *)x; break; }
+        }
     }
     if (!s) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1500000000), dispatch_get_main_queue(), ^{ makeBall(); });
@@ -397,8 +436,23 @@ static void onSettingsChanged(CFNotificationCenterRef c, void *o, CFStringRef n,
     dispatch_async(dispatch_get_main_queue(), ^{ removeBall(); makeBall(); });
 }
 
+// ============ 看门狗：scene 变了就重建悬浮球 ============
+static void watchdogTick(void) {
+    UIWindowScene *a = activeScene();
+    if (!a) return;
+    if (ballWin && ballWin.windowScene == a && !ballWin.hidden) return;
+    removeBall();
+    makeBall();
+}
+
 %ctor {
     %init;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ makeBall(); });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        makeBall();
+        // 每 1.5 秒检查一次悬浮球状态
+        [NSTimer scheduledTimerWithTimeInterval:1.5 repeats:YES block:^(NSTimer *t) {
+            watchdogTick();
+        }];
+    });
     CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL, onSettingsChanged, CFSTR("com.yourname.gptfloatball/settingsChanged"), NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
 }
