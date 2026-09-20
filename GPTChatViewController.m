@@ -1,10 +1,10 @@
 #import "GPTChatViewController.h"
 #import "GPTSettings.h"
 
-@interface GPTChatViewController () <UITableViewDelegate, UITableViewDataSource, UITextFieldDelegate>
+@interface GPTChatViewController () <UITableViewDelegate, UITableViewDataSource>
 @property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, strong) NSMutableArray *messages;
-@property (nonatomic, strong) UITextField *inputField;
+@property (nonatomic, strong) UIButton *inputBtn;
 @property (nonatomic, strong) UIView *bar;
 @end
 
@@ -35,85 +35,93 @@
     self.bar.autoresizingMask = UIViewAutoresizingFlexibleTopMargin | UIViewAutoresizingFlexibleWidth;
     [self.view addSubview:self.bar];
 
-    self.inputField = [[UITextField alloc] initWithFrame:CGRectMake(12, 10, W - 130, 40)];
-    self.inputField.placeholder = @"输入消息...";
-    self.inputField.borderStyle = UITextBorderStyleRoundedRect;
-    self.inputField.delegate = self;
-    self.inputField.returnKeyType = UIReturnKeySend;
-    self.inputField.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-    self.inputField.backgroundColor = [UIColor systemBackgroundColor];
-    [self.bar addSubview:self.inputField];
+    self.inputBtn = [UIButton buttonWithType:UIButtonTypeSystem];
+    self.inputBtn.frame = CGRectMake(12, 10, W - 130, 40);
+    [self.inputBtn setTitle:@"点击输入消息..." forState:UIControlStateNormal];
+    [self.inputBtn setTitleColor:[UIColor secondaryLabelColor] forState:UIControlStateNormal];
+    self.inputBtn.titleLabel.font = [UIFont systemFontOfSize:15];
+    self.inputBtn.contentHorizontalAlignment = UIControlContentHorizontalAlignmentLeft;
+    self.inputBtn.backgroundColor = [UIColor systemBackgroundColor];
+    self.inputBtn.layer.cornerRadius = 8;
+    self.inputBtn.layer.borderColor = [UIColor separatorColor].CGColor;
+    self.inputBtn.layer.borderWidth = 1;
+    self.inputBtn.contentEdgeInsets = UIEdgeInsetsMake(0, 12, 0, 12);
+    self.inputBtn.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+    [self.inputBtn addTarget:self action:@selector(showInputDialog) forControlEvents:UIControlEventTouchUpInside];
+    [self.bar addSubview:self.inputBtn];
 
     UIButton *polishBtn = [UIButton buttonWithType:UIButtonTypeSystem];
     polishBtn.frame = CGRectMake(W - 108, 10, 48, 40);
     [polishBtn setTitle:@"润色" forState:UIControlStateNormal];
-    [polishBtn addTarget:self action:@selector(polishText) forControlEvents:UIControlEventTouchUpInside];
+    [polishBtn addTarget:self action:@selector(showPolishDialog) forControlEvents:UIControlEventTouchUpInside];
     polishBtn.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
     [self.bar addSubview:polishBtn];
 
     UIButton *sendBtn = [UIButton buttonWithType:UIButtonTypeSystem];
     sendBtn.frame = CGRectMake(W - 56, 10, 48, 40);
-    [sendBtn setTitle:@"发送" forState:UIControlStateNormal];
-    [sendBtn addTarget:self action:@selector(sendMessage) forControlEvents:UIControlEventTouchUpInside];
+    [sendBtn setTitle:@"输入" forState:UIControlStateNormal];
+    [sendBtn addTarget:self action:@selector(showInputDialog) forControlEvents:UIControlEventTouchUpInside];
     sendBtn.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
     [self.bar addSubview:sendBtn];
-
-    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(kbShow:) name:UIKeyboardWillShowNotification object:nil];
-    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(kbHide:) name:UIKeyboardWillHideNotification object:nil];
-}
-
-- (void)viewDidAppear:(BOOL)animated {
-    [super viewDidAppear:animated];
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        [self.inputField becomeFirstResponder];
-    });
-}
-
-- (void)kbShow:(NSNotification *)n {
-    CGRect kb = [n.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];
-    CGFloat h = kb.size.height;
-    CGFloat safeB = self.view.safeAreaInsets.bottom;
-    [UIView animateWithDuration:0.25 animations:^{
-        self.bar.transform = CGAffineTransformMakeTranslation(0, -h + safeB);
-        self.tableView.contentInset = UIEdgeInsetsMake(0, 0, h - safeB, 0);
-        self.tableView.scrollIndicatorInsets = self.tableView.contentInset;
-    }];
-}
-
-- (void)kbHide:(NSNotification *)n {
-    [UIView animateWithDuration:0.25 animations:^{
-        self.bar.transform = CGAffineTransformIdentity;
-        self.tableView.contentInset = UIEdgeInsetsZero;
-        self.tableView.scrollIndicatorInsets = UIEdgeInsetsZero;
-    }];
 }
 
 - (void)close { if (self.dismissBlock) self.dismissBlock(); }
 - (void)clearAll { [self.messages removeAllObjects]; [GPTSettings clearHistory]; [self.tableView reloadData]; }
 
-- (void)polishText {
-    NSString *text = [self.inputField.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-    if (text.length == 0) return;
+// ============ 弹窗输入 ============
+- (void)showInputDialog {
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"输入消息" message:nil preferredStyle:UIAlertControllerStyleAlert];
+    [a addTextFieldWithConfigurationHandler:^(UITextField *tf) {
+        tf.placeholder = @"输入要发送的内容";
+        tf.clearButtonMode = UITextFieldViewModeWhileEditing;
+    }];
+    [a addAction:[UIAlertAction actionWithTitle:@"发送" style:UIAlertActionStyleDefault handler:^(UIAlertAction *_) {
+        NSString *t = a.textFields.firstObject.text ?: @"";
+        t = [t stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if (t.length == 0) return;
+        [self sendText:t];
+    }]];
+    [a addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:a animated:YES completion:nil];
+}
+
+- (void)showPolishDialog {
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"润色文本" message:@"输入要润色的文字" preferredStyle:UIAlertControllerStyleAlert];
+    [a addTextFieldWithConfigurationHandler:^(UITextField *tf) {
+        tf.placeholder = @"输入原始文本";
+    }];
+    [a addAction:[UIAlertAction actionWithTitle:@"润色" style:UIAlertActionStyleDefault handler:^(UIAlertAction *_) {
+        NSString *t = a.textFields.firstObject.text ?: @"";
+        t = [t stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if (t.length == 0) return;
+        [self polishText:t];
+    }]];
+    [a addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:a animated:YES completion:nil];
+}
+
+// ============ 发送 ============
+- (void)sendText:(NSString *)text {
     if ([GPTSettings apiKey].length == 0) { [self alert:@"请先在设置里填 API Key"]; return; }
-    self.inputField.text = @"";
+    [self.messages addObject:@{@"role": @"user", @"content": text}];
+    [self.tableView reloadData];
+    if (self.messages.count > 0) {
+        NSIndexPath *last = [NSIndexPath indexPathForRow:self.messages.count - 1 inSection:0];
+        [self.tableView scrollToRowAtIndexPath:last atScrollPosition:UITableViewScrollPositionBottom animated:YES];
+    }
+    NSMutableArray *msgs = [NSMutableArray array];
+    [msgs addObject:@{@"role": @"system", @"content": [GPTSettings systemPrompt]}];
+    for (NSDictionary *m in self.messages) [msgs addObject:m];
+    [self callAPI:msgs isPolish:NO];
+}
+
+- (void)polishText:(NSString *)text {
+    if ([GPTSettings apiKey].length == 0) { [self alert:@"请先在设置里填 API Key"]; return; }
     NSArray *msgs = @[
         @{@"role": @"system", @"content": @"你是一个专业的中文润色助手。请对用户提供的文本进行润色，使其更通顺、优美、专业，只返回润色后的文本。"},
         @{@"role": @"user", @"content": text}
     ];
     [self callAPI:msgs isPolish:YES];
-}
-
-- (void)sendMessage {
-    NSString *text = [self.inputField.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
-    if (text.length == 0) return;
-    if ([GPTSettings apiKey].length == 0) { [self alert:@"请先在设置里填 API Key"]; return; }
-    self.inputField.text = @"";
-    [self.messages addObject:@{@"role": @"user", @"content": text}];
-    [self.tableView reloadData];
-    NSMutableArray *msgs = [NSMutableArray array];
-    [msgs addObject:@{@"role": @"system", @"content": [GPTSettings systemPrompt]}];
-    for (NSDictionary *m in self.messages) [msgs addObject:m];
-    [self callAPI:msgs isPolish:NO];
 }
 
 - (void)callAPI:(NSArray *)msgs isPolish:(BOOL)isPolish {
@@ -129,6 +137,7 @@
     [req setValue:[NSString stringWithFormat:@"Bearer %@", [GPTSettings apiKey]] forHTTPHeaderField:@"Authorization"];
     req.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
     req.timeoutInterval = 60;
+
     [[[NSURLSession sharedSession] dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *resp, NSError *err) {
         dispatch_async(dispatch_get_main_queue(), ^{
             if (err) { [self alert:[NSString stringWithFormat:@"网络错误: %@", err.localizedDescription]]; return; }
@@ -140,8 +149,12 @@
                 return;
             }
             if (isPolish) {
-                self.inputField.text = reply;
-                [self.inputField becomeFirstResponder];
+                UIAlertController *show = [UIAlertController alertControllerWithTitle:@"润色结果" message:reply preferredStyle:UIAlertControllerStyleAlert];
+                [show addAction:[UIAlertAction actionWithTitle:@"发送" style:UIAlertActionStyleDefault handler:^(UIAlertAction *_) {
+                    [self sendText:reply];
+                }]];
+                [show addAction:[UIAlertAction actionWithTitle:@"关闭" style:UIAlertActionStyleCancel handler:nil]];
+                [self presentViewController:show animated:YES completion:nil];
             } else {
                 [self.messages addObject:@{@"role": @"assistant", @"content": reply}];
                 [GPTSettings saveChatHistory:self.messages];
@@ -161,7 +174,6 @@
     [self presentViewController:a animated:YES completion:nil];
 }
 
-- (BOOL)textFieldShouldReturn:(UITextField *)tf { [self sendMessage]; return YES; }
 - (NSInteger)tableView:(UITableView *)tv numberOfRowsInSection:(NSInteger)s { return self.messages.count; }
 
 - (UITableViewCell *)tableView:(UITableView *)tv cellForRowAtIndexPath:(NSIndexPath *)ip {
