@@ -221,7 +221,7 @@ jobs:
                       <key>key</key><string>enabled</string>
                       <key>label</key><string>启用悬浮球</string>
                   </dict>
-                  <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>API 配置</string><key>footerText</key><string>输入 Key 和地址后，点击右上角“应用更改”保存，再去选模型</string></dict>
+                  <dict><key>cell</key><string>PSGroupCell</string><key>label</key><string>API 配置</string><key>footerText</key><string>支持 OpenAI 及兼容接口</string></dict>
                   <dict>
                       <key>cell</key><string>PSEditTextCell</string>
                       <key>defaults</key><string>com.yourname.gptfloatball</string>
@@ -302,11 +302,14 @@ jobs:
               [super viewDidLoad];
               self.title = @"选择模型";
               self.modelList = [NSMutableArray array];
-              // 不立刻请求，等用户点击刷新按钮
+              
+              // 延迟 0.5 秒自动请求，确保上一页的输入框内容已经写入 plist
+              dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                  [self fetchModels];
+              });
           }
 
           - (void)fetchModels {
-              // 强制同步 NSUserDefaults，解决输入框数据延迟问题
               NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:kPrefsDomain];
               [ud synchronize];
 
@@ -318,7 +321,7 @@ jobs:
               }
 
               if (!apiKey || apiKey.length == 0) {
-                  [self showError:@"请先在上一页填写 API Key，点击右上角‘应用更改’保存后，再点击本页的刷新按钮。"];
+                  [self showError:@"请先返回上一页填写 API Key，然后再点进来。" autoPop:YES];
                   return;
               }
 
@@ -345,7 +348,7 @@ jobs:
               [[[NSURLSession sharedSession] dataTaskWithRequest:req completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
                   dispatch_async(dispatch_get_main_queue(), ^{
                       [spinner removeFromSuperview];
-                      if (error) { [self showError:error.localizedDescription]; return; }
+                      if (error) { [self showError:error.localizedDescription autoPop:NO]; return; }
 
                       NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
                       NSArray *dataArray = json[@"data"];
@@ -360,7 +363,7 @@ jobs:
                           }
                           [self reloadSpecifiers];
                       } else {
-                          [self showError:@"获取模型失败，请检查 API 地址和 Key"];
+                          [self showError:@"获取模型失败，请检查 API 地址和 Key" autoPop:NO];
                       }
                   });
               }] resume];
@@ -372,16 +375,12 @@ jobs:
               }
               [(NSMutableArray *)_specifiers removeAllObjects];
 
-              // 添加刷新按钮
-              PSSpecifier *refreshBtn = [PSSpecifier preferenceSpecifierNamed:@"🔄 重新获取模型列表" target:self set:@selector(fetchModels) get:nil detail:nil cell:PSButtonCell edit:nil];
-              [(NSMutableArray *)_specifiers addObject:refreshBtn];
-
               NSDictionary *prefs = [NSDictionary dictionaryWithContentsOfFile:kPrefsPlist] ?: @{};
               NSString *currentModel = prefs[@"modelName"] ?: @"";
 
               if (self.modelList.count == 0) {
-                  PSSpecifier *hint = [PSSpecifier preferenceSpecifierNamed:@"请确保 API Key 已保存，点击上方按钮获取" target:self set:nil get:nil detail:nil cell:PSStaticTextCell edit:nil];
-                  [(NSMutableArray *)_specifiers addObject:hint];
+                  PSSpecifier *loading = [PSSpecifier preferenceSpecifierNamed:@"正在自动获取模型..." target:self set:nil get:nil detail:nil cell:PSStaticTextCell edit:nil];
+                  [(NSMutableArray *)_specifiers addObject:loading];
               } else {
                   for (NSString *model in self.modelList) {
                       PSSpecifier *spec = [PSSpecifier preferenceSpecifierNamed:model target:self set:nil get:nil detail:nil cell:PSListItemCell edit:nil];
@@ -408,9 +407,11 @@ jobs:
               [self.navigationController popViewControllerAnimated:YES];
           }
 
-          - (void)showError:(NSString *)msg {
+          - (void)showError:(NSString *)msg autoPop:(BOOL)autoPop {
               UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"提示" message:msg preferredStyle:UIAlertControllerStyleAlert];
-              [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+              [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
+                  if (autoPop) [self.navigationController popViewControllerAnimated:YES];
+              }]];
               [self presentViewController:alert animated:YES completion:nil];
           }
           @end
@@ -434,18 +435,23 @@ jobs:
                   initWithTitle:@"应用更改" style:UIBarButtonItemStyleDone target:self action:@selector(apply)];
           }
 
-          - (void)apply {
-              // 强制同步输入框内容到 plist
-              NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:kPrefsDomain];
-              [ud synchronize];
+          // 关键：离开页面时强制取消键盘焦点，保存输入框内容
+          - (void)viewWillDisappear:(BOOL)animated {
+              [super viewWillDisappear:animated];
+              [self.view endEditing:YES];
+          }
 
-              // 发送通知给 Tweak 刷新
+          - (void)apply {
+              [self.view endEditing:YES]; // 强制保存输入框
+              NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:kPrefsDomain];
+              [ud synchronize]; // 同步
+
               CFNotificationCenterPostNotification(
                   CFNotificationCenterGetDarwinNotifyCenter(),
                   CFSTR("com.yourname.gptfloatball/settingsChanged"),
                   NULL, NULL, YES);
 
-              UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"保存成功" message:@"设置已生效，悬浮球已自动刷新。现在可以点‘模型’去获取列表了。" preferredStyle:UIAlertControllerStyleAlert];
+              UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"保存成功" message:@"设置已生效，悬浮球已自动刷新。" preferredStyle:UIAlertControllerStyleAlert];
               [alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
               [self presentViewController:alert animated:YES completion:nil];
           }
