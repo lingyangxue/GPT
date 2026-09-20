@@ -1,7 +1,7 @@
 include $(THEOS)/makefiles/common.mk
 
 BUNDLE_NAME = GPTFloatBallPrefs
-GPTFloatBallPrefs_FILES = GPTFloatBallPrefsRootListController.m
+GPTFloatBallPrefs_FILES = P.m
 GPTFloatBallPrefs_INSTALL_PATH = /Library/PreferenceBundles
 GPTFloatBallPrefs_FRAMEWORKS = UIKit
 GPTFloatBallPrefs_CFLAGS = -fobjc-arc
