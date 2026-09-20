@@ -3,45 +3,78 @@
 #import <objc/runtime.h>
 #import "GPTSettings.h"
 
-// ==================== 键盘工具栏 ====================
-@interface GPTToolbar : UIView
-+ (instancetype)shared;
-@end
+// ==================== 键盘工具栏（悬浮小窗口） ====================
+static UIWindow *kbBarWin = nil;
 
-@implementation GPTToolbar
-+ (instancetype)shared {
-    static GPTToolbar *t = nil;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        CGFloat W = [UIScreen mainScreen].bounds.size.width;
-        t = [[GPTToolbar alloc] initWithFrame:CGRectMake(0, 0, W, 44)];
-        t.backgroundColor = [UIColor secondarySystemBackgroundColor];
-        t.autoresizingMask = UIViewAutoresizingFlexibleWidth;
+static void showKbBar(CGFloat kbY, CGFloat kbW) {
+    if (kbBarWin) return;
+    if (![GPTSettings isEnabled]) return;
 
-        UIButton *btn = [UIButton buttonWithType:UIButtonTypeSystem];
-        btn.frame = CGRectMake(12, 7, 130, 30);
-        [btn setTitle:@"🤖 GPT 助手" forState:UIControlStateNormal];
-        btn.backgroundColor = [UIColor colorWithRed:0.1 green:0.45 blue:0.91 alpha:1.0];
-        [btn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-        btn.titleLabel.font = [UIFont boldSystemFontOfSize:14];
-        btn.layer.cornerRadius = 8;
-        [btn addTarget:t action:@selector(openChat) forControlEvents:UIControlEventTouchUpInside];
-        [t addSubview:btn];
-    });
-    return t;
+    UIWindowScene *scene = nil;
+    for (UIScene *s in [UIApplication sharedApplication].connectedScenes) {
+        if ([s isKindOfClass:[UIWindowScene class]]) { scene = (UIWindowScene *)s; break; }
+    }
+    if (!scene) return;
+
+    CGFloat H = 44;
+    kbBarWin = [[UIWindow alloc] initWithWindowScene:scene];
+    kbBarWin.frame = CGRectMake(0, kbY - H, kbW, H);
+    kbBarWin.windowLevel = UIWindowLevelAlert + 500;
+    kbBarWin.backgroundColor = [UIColor secondarySystemBackgroundColor];
+    kbBarWin.rootViewController = [UIViewController new];
+    kbBarWin.hidden = NO;
+
+    UIButton *btn = [UIButton buttonWithType:UIButtonTypeSystem];
+    btn.frame = CGRectMake(12, 7, 130, 30);
+    [btn setTitle:@"🤖 GPT 助手" forState:UIControlStateNormal];
+    btn.backgroundColor = [UIColor colorWithRed:0.1 green:0.45 blue:0.91 alpha:1.0];
+    [btn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    btn.titleLabel.font = [UIFont boldSystemFontOfSize:14];
+    btn.layer.cornerRadius = 8;
+    [btn addTarget:[NSClassFromString(@"KbBarHandler") class] action:@selector(openChat) forControlEvents:UIControlEventTouchUpInside];
+    [kbBarWin.rootViewController.view addSubview:btn];
 }
 
-- (void)openChat {
+static void hideKbBar(void) {
+    if (kbBarWin) {
+        kbBarWin.hidden = YES;
+        kbBarWin = nil;
+    }
+}
+
+// ==================== 键盘通知处理 ====================
+static void kbWillShow(NSNotification *n) {
+    NSDictionary *info = n.userInfo;
+    CGRect kbFrame = [info[UIKeyboardFrameEndUserInfoKey] CGRectValue];
+    // kbFrame 是屏幕坐标
+    CGFloat kbY = kbFrame.origin.y;
+    CGFloat kbW = kbFrame.size.width;
+    // 稍等键盘动画完成
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        showKbBar(kbY, kbW);
+    });
+}
+
+static void kbWillHide(NSNotification *n) {
+    hideKbBar();
+}
+
+// ==================== 工具栏点击回调 ====================
+@interface KbBarHandler : NSObject
++ (void)openChat;
+@end
+
+@implementation KbBarHandler
++ (void)openChat {
     UIWindow *kw = nil;
     for (UIWindow *w in [UIApplication sharedApplication].windows) {
-        if (w.isKeyWindow) { kw = w; break; }
+        if (w.isKeyWindow && w != kbBarWin) { kw = w; break; }
     }
     if (!kw) return;
     UIViewController *top = kw.rootViewController;
     while (top.presentedViewController) top = top.presentedViewController;
     if (!top) return;
 
-    // 动态查找 GPTChatViewController（避免直接 link）
     Class vcClass = NSClassFromString(@"GPTChatViewController");
     if (!vcClass) return;
     UIViewController *vc = [[vcClass alloc] init];
@@ -50,25 +83,7 @@
 }
 @end
 
-%hook UITextField
-- (UIView *)inputAccessoryView {
-    UIView *v = %orig;
-    if (v) return v;
-    if (![GPTSettings isEnabled]) return nil;
-    return [GPTToolbar shared];
-}
-%end
-
-%hook UITextView
-- (UIView *)inputAccessoryView {
-    UIView *v = %orig;
-    if (v) return v;
-    if (![GPTSettings isEnabled]) return nil;
-    return [GPTToolbar shared];
-}
-%end
-
-// ==================== 悬浮球 ====================
+// ==================== 悬浮球（仅 SpringBoard） ====================
 static BOOL isSB(void) {
     return [[NSBundle mainBundle].bundleIdentifier isEqualToString:@"com.apple.springboard"];
 }
@@ -476,6 +491,14 @@ static void watchdogTick(void) {
 
 %ctor {
     %init;
+    // 键盘通知：所有进程都监听
+    [[NSNotificationCenter defaultCenter] addObserverForName:UIKeyboardWillShowNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *n) {
+        kbWillShow(n);
+    }];
+    [[NSNotificationCenter defaultCenter] addObserverForName:UIKeyboardWillHideNotification object:nil queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification *n) {
+        kbWillHide(n);
+    }];
+
     if (isSB()) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(6 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             makeBall();
