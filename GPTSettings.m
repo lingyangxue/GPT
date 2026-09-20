@@ -1,4 +1,5 @@
 #import "GPTSettings.h"
+
 @implementation GPTSettings
 + (NSDictionary *)_readPrefs {
     NSDictionary *dict = [NSDictionary dictionaryWithContentsOfFile:prefsPath()];
@@ -11,7 +12,14 @@
     [dict writeToFile:prefsPath() atomically:YES];
     CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), CFSTR("com.yourname.gptfloatball/settingsChanged"), NULL, NULL, YES);
 }
-+ (BOOL)isEnabled { NSNumber *v = [self _readPrefs][@"enabled"]; return v ? [v boolValue] : YES; }
++ (BOOL)isEnabled {
+    NSNumber *v = [self _readPrefs][@"enabled"];
+    return v ? [v boolValue] : YES;
+}
++ (BOOL)ballEnabled {
+    NSNumber *v = [self _readPrefs][@"ballEnabled"];
+    return v ? [v boolValue] : YES;
+}
 + (NSString *)apiKey { return [self _readPrefs][@"apiKey"] ?: @""; }
 + (NSString *)apiBaseURL {
     NSString *url = [self _readPrefs][@"apiBaseURL"];
@@ -39,8 +47,8 @@
 }
 + (CGFloat)ballSize {
     NSString *s = [self _readPrefs][@"ballSize"];
-    CGFloat v = s.length > 0 ? [s floatValue] : 60;
-    if (v < 10) v = 10;
+    CGFloat v = s.length > 0 ? [s floatValue] : 36;
+    if (v < 20) v = 20;
     if (v > 150) v = 150;
     return v;
 }
